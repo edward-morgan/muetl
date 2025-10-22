@@ -5,13 +5,34 @@ mod task;
 mod node;
 
 use event::Event;
+use kameo::{
+    prelude::{Context, Message},
+    Actor,
+};
+use kameo_actors::pubsub::PubSub;
 use task::Node;
 
 fn main() {
     println!("Hello, world!");
 
     let node = MyNode {};
-    // print_inputs_outputs_for(&node);
+    let mut pubsub = PubSub::new(kameo_actors::DeliveryStrategy::BestEffort);
+    let actor_ref = MyActor::spawn(MyActor);
+    // Use PubSub as a standalone object
+    pubsub.subscribe(actor_ref.clone());
+    // pubsub.publish("Hello, World!").await;
+}
+#[derive(Actor)]
+struct MyActor;
+
+impl Message<&'static str> for MyActor {
+    type Reply = ();
+    async fn handle(
+        &mut self,
+        msg: &'static str,
+        ctx: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+    }
 }
 
 struct MyNode {}
@@ -23,13 +44,6 @@ impl MyNode {
         HashMap::new()
     }
 }
-
-// // Use the macro to automatically implement everything!
-// impl_task! {
-//     MyNode,
-//     inputs: { String => "Input #1" => handle_string },
-//     outputs: { i32 => "Output #1" }
-// }
 
 fn print_inputs_outputs_for(node: &dyn Node) {
     let inputs = node.get_inputs();
