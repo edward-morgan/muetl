@@ -1,16 +1,17 @@
 use std::{any::TypeId, collections::HashMap};
-mod event;
+mod messages;
 #[macro_use]
-mod task;
-mod node;
+mod task_defs;
+mod actors;
+mod util;
 
-use event::Event;
+use crate::task_defs::node::Node;
 use kameo::{
     prelude::{Context, Message},
     Actor,
 };
 use kameo_actors::pubsub::PubSub;
-use task::Node;
+use messages::event::Event;
 
 fn main() {
     println!("Hello, world!");
