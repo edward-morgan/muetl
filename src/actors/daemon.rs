@@ -1,40 +1,40 @@
-use crate::messages::StatusUpdate;
-use crate::util::new_id;
-use kameo::actor::ActorRef;
-use kameo::message::{Context, Message};
-use kameo::Actor;
-use kameo_actors::pubsub::PubSub;
-use std::any::TypeId;
-use std::collections::HashMap;
-use std::ops::Deref;
-use std::panic;
-use std::sync::Arc;
+use std::{
+    any::TypeId,
+    collections::HashMap,
+    pin::{self, pin},
+    sync::Arc,
+    time::Duration,
+};
 
-use crate::messages::event::Event;
-use crate::task_defs::{node::Node, Input};
+use futures::{stream, Stream};
+use kameo::{actor::ActorRef, error::Infallible, message::StreamMessage, prelude::Message, Actor};
+use kameo_actors::pubsub::PubSub;
+use tokio::sync::{self, mpsc};
+use tokio_stream::StreamExt;
+
+use crate::{
+    messages::{event::Event, StatusUpdate},
+    task_defs::{daemon::Daemon, TaskResult},
+    util::new_id,
+};
 
 use super::EventMessage;
 
-#[derive(Actor)]
-pub struct NodeActor<T: 'static>
+pub struct DaemonActor<T: 'static>
 where
-    T: Node,
+    T: Daemon,
 {
     id: u32,
-    node: Box<T>,
-    inputs: HashMap<String, Vec<TypeId>>,
+    daemon: Box<T>,
     outputs: HashMap<String, Vec<TypeId>>,
     /// For each output conn_name, keep a mapping of negotiated types to the PubSub channels results will be sent on.
     subscriber_chans: HashMap<String, HashMap<TypeId, PubSub<EventMessage>>>,
-    /// A mapping of senders to this node, from source (output) conn_name to input conn_name
-    input_conn_name_mapping: HashMap<String, String>,
     monitor_chan: PubSub<StatusUpdate>,
 }
 
-impl<T: Node> NodeActor<T> {
-    fn new(node: Box<T>, monitor_chan: PubSub<StatusUpdate>) -> NodeActor<T> {
-        let inputs = node.get_inputs();
-        let outputs = node.get_outputs();
+impl<T: Daemon> DaemonActor<T> {
+    fn new(daemon: Box<T>, monitor_chan: PubSub<StatusUpdate>) -> Self {
+        let outputs = daemon.get_outputs();
         let mut subscriber_chans = HashMap::<String, HashMap<TypeId, PubSub<EventMessage>>>::new();
         for (name, supported_types) in &outputs {
             let mut chans_for_conn = HashMap::new();
@@ -46,22 +46,15 @@ impl<T: Node> NodeActor<T> {
             });
             subscriber_chans.insert(name.clone(), chans_for_conn);
         }
-        NodeActor {
+
+        DaemonActor {
             id: new_id(),
-            node,
-            inputs,
+            daemon,
             outputs,
             subscriber_chans,
-            input_conn_name_mapping: HashMap::new(),
             monitor_chan,
         }
     }
-
-    fn set_source_conn_mapping(&mut self, from_conn_name: String, to_conn_name: String) {
-        self.input_conn_name_mapping
-            .insert(from_conn_name, to_conn_name);
-    }
-
     /// Subscribes the given ActorRef to the output conn_name. If the
     /// output conn_name cannot be found, or if the Node was improperly
     /// instantiated, then an error is returned.
@@ -107,9 +100,9 @@ impl<T: Node> NodeActor<T> {
 
     async fn produce_outputs(&mut self, events: Vec<Event>) -> Result<(), String> {
         for event in events {
+            // TODO: we need to check that if an Event is produced for a conn_name, a matching Event has been produced
+            // for EVERY VARIANT of that conn_name's negotiated types
             if let Some(subs_for_conn) = self.subscriber_chans.get_mut(&event.conn_name) {
-                // TODO: we need to check that if an Event is produced for a conn_name, a matching Event has been produced
-                // for EVERY VARIANT of that conn_name's negotiated types
                 if let Some(chan) = subs_for_conn.get_mut(&event.get_data().type_id()) {
                     chan.publish(Arc::new(event)).await;
                 } else {
@@ -131,34 +124,70 @@ impl<T: Node> NodeActor<T> {
     }
 }
 
-impl<T: Node> Message<Arc<Event>> for NodeActor<T> {
+impl<T: Daemon> Message<()> for DaemonActor<T> {
     type Reply = ();
-
     async fn handle(
         &mut self,
-        ev: Arc<Event>,
-        _ctx: &mut Context<Self, Self::Reply>,
+        _: (),
+        ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        // Before sending the event to the Node, remap its conn_name from the output of the sender
-        // to the input of this Node.
-        if let Some(input_conn_name) = self.input_conn_name_mapping.get(&ev.conn_name) {
-            match self.node.handle_event(input_conn_name, ev.clone()) {
-                Ok((events, status)) => {
-                    match self.produce_outputs(events).await {
-                        Ok(()) => {}
-                        Err(reason) => println!("failed to produce events: {}", reason),
-                    }
-                    if let Some(stat) = status {
-                        self.monitor_chan
-                            .publish(StatusUpdate {
-                                id: self.id,
-                                status: stat,
-                            })
-                            .await
-                    }
+        match self.daemon.run() {
+            Ok((events, status)) => {
+                match self.produce_outputs(events).await {
+                    Ok(()) => {}
+                    Err(reason) => println!("failed to produce events: {}", reason),
                 }
-                Err(reason) => println!("Error handling event named {}: {}", ev.name, reason),
+                if let Some(stat) = status {
+                    self.monitor_chan
+                        .publish(StatusUpdate {
+                            id: self.id,
+                            status: stat,
+                        })
+                        .await
+                }
+                // Immediately enqueue another run
+                ctx.actor_ref().tell(()).await.unwrap();
             }
+            Err(reason) => println!("Daemon encountered error: {}", reason),
         }
     }
 }
+
+impl<T: Daemon> Actor for DaemonActor<T> {
+    type Args = Self;
+    type Error = Infallible;
+    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+        // Send a trigger message to kick off the daemon.
+        actor_ref.tell(()).await.unwrap();
+        Ok(args)
+    }
+}
+
+// impl<T: Daemon + Unpin> Message<StreamMessage<TaskResult, &'static str, &'static str>>
+//     for DaemonActor<T>
+// {
+//     type Reply = ();
+//     async fn handle(
+//         &mut self,
+//         msg: StreamMessage<TaskResult, &'static str, &'static str>,
+//         ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
+//     ) -> Self::Reply {
+//     }
+// }
+
+// impl<T: Daemon + Unpin> Actor for DaemonActor<T> {
+//     type Args = Self;
+//     type Error = Infallible;
+
+//     async fn on_start(
+//         mut state: Self::Args,
+//         actor_ref: ActorRef<Self>,
+//     ) -> Result<Self, Self::Error> {
+//         actor_ref.attach_stream(
+//             state.task_results.unwrap(),
+//             Err(format!("start"), Err(format!("end"))),
+//         );
+
+//         Ok(state)
+//     }
+// }

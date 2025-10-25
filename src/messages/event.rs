@@ -13,9 +13,6 @@ pub struct Event {
     pub conn_name: String,
     /// A key/value map of header metadata associated with this event.
     pub headers: HashMap<String, String>,
-    /// The type of data in this Event. Should be automatically set upon Event creation and
-    /// used to downcast the data field.
-    tpe: TypeId,
     /// The payload contained in this Event. Its type should be pointed to by tpe.
     data: Arc<dyn Any + Send + Sync>,
 }
@@ -31,7 +28,6 @@ impl Event {
             name,
             conn_name,
             headers,
-            tpe: data.type_id(),
             data: data.clone(),
         }
     }
@@ -41,7 +37,10 @@ impl Event {
     pub fn get_data(&self) -> Arc<dyn Any + Send + Sync> {
         self.data.clone()
     }
-    pub fn get_data_type(&self) -> TypeId {
-        self.tpe
-    }
+}
+
+fn assert_send<T: Send>(t: T) {}
+fn two() {
+    let e = Event::new("".to_string(), "".to_string(), HashMap::new(), Arc::new(2));
+    assert_send(e);
 }

@@ -3,6 +3,7 @@ mod messages;
 #[macro_use]
 mod task_defs;
 mod actors;
+mod daemons;
 mod util;
 
 use crate::task_defs::node::Node;
