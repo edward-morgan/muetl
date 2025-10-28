@@ -32,5 +32,5 @@ pub trait Daemon: HasOutputs + Send + Sync {
         Ok(())
     }
 
-    fn run(&mut self) -> TaskResult;
+    fn run(&mut self, ctx: &MuetlContext) -> TaskResult;
 }

@@ -83,6 +83,7 @@ impl<T: Daemon> DaemonActor<T> {
             ));
         }
 
+        // TODO: the subscribe logic here should match what's in Node exactly.
         let chans_per_type = self.subscriber_chans.get_mut(&conn_name).unwrap();
         let mut types = vec![];
         for (tpe, chan) in chans_per_type {
@@ -131,6 +132,7 @@ impl<T: Daemon> Message<()> for DaemonActor<T> {
         _: (),
         ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
     ) -> Self::Reply {
+        // TODO: Add MuetlContext similar to Node's. Maybe pull that common functionality out into a trait?
         match self.daemon.run() {
             Ok((events, status)) => {
                 match self.produce_outputs(events).await {
@@ -162,32 +164,3 @@ impl<T: Daemon> Actor for DaemonActor<T> {
         Ok(args)
     }
 }
-
-// impl<T: Daemon + Unpin> Message<StreamMessage<TaskResult, &'static str, &'static str>>
-//     for DaemonActor<T>
-// {
-//     type Reply = ();
-//     async fn handle(
-//         &mut self,
-//         msg: StreamMessage<TaskResult, &'static str, &'static str>,
-//         ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
-//     ) -> Self::Reply {
-//     }
-// }
-
-// impl<T: Daemon + Unpin> Actor for DaemonActor<T> {
-//     type Args = Self;
-//     type Error = Infallible;
-
-//     async fn on_start(
-//         mut state: Self::Args,
-//         actor_ref: ActorRef<Self>,
-//     ) -> Result<Self, Self::Error> {
-//         actor_ref.attach_stream(
-//             state.task_results.unwrap(),
-//             Err(format!("start"), Err(format!("end"))),
-//         );
-
-//         Ok(state)
-//     }
-// }

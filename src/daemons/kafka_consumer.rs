@@ -2,7 +2,10 @@ use std::any::TypeId;
 use std::collections::HashMap;
 
 use crate::task_defs::daemon::Daemon;
-use crate::task_defs::{ConfigField, HasOutputs, TaskConfig, TaskConfigTpl, TaskDef};
+use crate::task_defs::{
+    ConfigField, HasOutputs, MuetlContext, Output, RegisteredType, TaskConfig, TaskConfigTpl,
+    TaskDef,
+};
 use envconfig::Envconfig;
 use futures::Stream;
 use rdkafka::consumer::{BaseConsumer, CommitMode, Consumer, ConsumerContext, Rebalance};
@@ -10,15 +13,11 @@ use rdkafka::{consumer::StreamConsumer, ClientConfig};
 
 pub struct KafkaConsumer {
     consumer: Option<StreamConsumer>,
-    negotiated_outputs_for_conns: HashMap<String, Vec<TypeId>>,
 }
 
 impl KafkaConsumer {
     fn new() -> Self {
-        Self {
-            consumer: None,
-            negotiated_outputs_for_conns: HashMap::new(),
-        }
+        Self { consumer: None }
     }
 }
 
@@ -66,18 +65,27 @@ impl TaskDef for KafkaConsumer {
     }
 }
 
+/// A KafkaConsumer can output any discrete registered type, provided it is deserializable.
+/// Note that this only means the consumer will *try* to deserialize Kafka messages into the
+/// given type; if they aren't deserializable, only support deserialization from a particular
+/// type (ex. Protobuf when the topic contains XML), then runtime errors will occur.
+impl Output<RegisteredType> for KafkaConsumer {
+    const conn_name: &'static str = "deserialized_message";
+}
+
 impl HasOutputs for KafkaConsumer {
     fn get_outputs(&self) -> std::collections::HashMap<String, Vec<std::any::TypeId>> {
-        HashMap::new()
-    }
-    fn set_negotiated_outputs_for_conn(&mut self, conn_name: String, types: Vec<TypeId>) {
-        self.negotiated_outputs_for_conns.insert(conn_name, types);
-    }
-    fn get_negotiated_outputs_for_conn(&mut self, conn_name: String) -> Option<&Vec<TypeId>> {
-        self.negotiated_outputs_for_conns.get(&conn_name)
+        let mut hm = HashMap::new();
+        hm.insert(
+            "deserialized_message".to_string(),
+            vec![TypeId::of::<RegisteredType>()],
+        );
+        hm
     }
 }
 
 impl Daemon for KafkaConsumer {
-    fn get_outputs(&self) -> std::collections::HashMap<String, Vec<std::any::TypeId>> {}
+    fn run(&mut self, ctx: &MuetlContext) -> crate::task_defs::TaskResult {
+        Err(format!("unimplemented"))
+    }
 }

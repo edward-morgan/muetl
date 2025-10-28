@@ -1,4 +1,5 @@
 use crate::messages::StatusUpdate;
+use crate::task_defs::MuetlContext;
 use crate::util::new_id;
 use kameo::actor::ActorRef;
 use kameo::message::{Context, Message};
@@ -22,13 +23,36 @@ where
 {
     id: u32,
     node: Box<T>,
+    /// The inputs of the wrapped node, retrieved via its get_inputs() function.
     inputs: HashMap<String, Vec<TypeId>>,
+    /// The outputs of the wrapped node, retrieved via its get_outputs() function.
     outputs: HashMap<String, Vec<TypeId>>,
     /// For each output conn_name, keep a mapping of negotiated types to the PubSub channels results will be sent on.
     subscriber_chans: HashMap<String, HashMap<TypeId, PubSub<EventMessage>>>,
     /// A mapping of senders to this node, from source (output) conn_name to input conn_name
     input_conn_name_mapping: HashMap<String, String>,
     monitor_chan: PubSub<StatusUpdate>,
+    current_context: MuetlContext,
+}
+
+impl<T: Node> NodeActor<T> {
+    /// Update the current MuetlContext with the given TypeId for the given output conn_name.
+    /// This updates the context that is passed to the wrapped node and should be called
+    /// whenever a new subscription request is validated against this Node.
+    fn add_subscriber_to_context(&mut self, conn_name: String, tpe: TypeId) {
+        // Allow panics here because the input should have already been validated.
+        let subs = self
+            .current_context
+            .current_subscribers
+            .get_mut(&conn_name)
+            .unwrap();
+
+        if !subs.contains(&tpe) {
+            subs.push(tpe);
+        }
+    }
+
+    // TODO: On unsubscribe, add a corresponding remove_subscriber_from_context()
 }
 
 impl<T: Node> NodeActor<T> {
@@ -36,16 +60,12 @@ impl<T: Node> NodeActor<T> {
         let inputs = node.get_inputs();
         let outputs = node.get_outputs();
         let mut subscriber_chans = HashMap::<String, HashMap<TypeId, PubSub<EventMessage>>>::new();
-        for (name, supported_types) in &outputs {
-            let mut chans_for_conn = HashMap::new();
-            supported_types.iter().for_each(|tpe| {
-                chans_for_conn.insert(
-                    tpe.clone(),
-                    PubSub::<EventMessage>::new(kameo_actors::DeliveryStrategy::Guaranteed),
-                );
-            });
-            subscriber_chans.insert(name.clone(), chans_for_conn);
-        }
+        // Start with an empty set of subscribers for each output. This should be dynamically updated
+        // as calls to handle_subscribe_to() are made.
+        outputs.iter().for_each(|(conn_name, _)| {
+            subscriber_chans.insert(conn_name.clone(), HashMap::new());
+        });
+
         NodeActor {
             id: new_id(),
             node,
@@ -54,6 +74,9 @@ impl<T: Node> NodeActor<T> {
             subscriber_chans,
             input_conn_name_mapping: HashMap::new(),
             monitor_chan,
+            current_context: MuetlContext {
+                current_subscribers: HashMap::new(),
+            },
         }
     }
 
@@ -80,29 +103,47 @@ impl<T: Node> NodeActor<T> {
         &mut self,
         conn_name: String,
         r: ActorRef<Subscriber>,
-        supported_types: &Vec<TypeId>,
+        requested_types: &Vec<TypeId>,
     ) -> Result<TypeId, String> {
-        if !self.subscriber_chans.contains_key(&conn_name) {
+        // If the conn_name exists
+        if let Some(supported_output_types) = self.outputs.get(&conn_name) {
+            // Search for the first output type that is contained in the set of
+            // types requested by the subscriber. Note that ordering matters here -
+            // the earlier in the requested type set a TypeId is, the higher
+            // priority it has of being matched.
+            if let Some(matching_type) = requested_types
+                .iter()
+                .find(|&requested_type| supported_output_types.contains(requested_type))
+            {
+                // TODO: we need to add special support for matching against RegisteredType, which
+                // should consist of making sure the given TypeId exists in some global registry of
+                // structs.
+                let subscriber_chans = self.subscriber_chans.get_mut(&conn_name).unwrap();
+                // If it already exists in subscriber_chans, just subscribe to the PubSub
+                if let Some(chan_for_type) = subscriber_chans.get_mut(matching_type) {
+                    chan_for_type.subscribe(r);
+                } else {
+                    // Create a new PubSub for the given type and subscribe to it.
+                    let mut chan =
+                        PubSub::<EventMessage>::new(kameo_actors::DeliveryStrategy::Guaranteed);
+                    chan.subscribe(r);
+                    subscriber_chans.insert(matching_type.clone(), chan);
+                }
+                // Make sure to update the current MuetlContext so that the wrapped Node knows that
+                // it should generate outputs for the given type.
+                self.add_subscriber_to_context(conn_name, matching_type.clone());
+                return Ok(matching_type.clone());
+            } else {
+                Err(format!("supported type set for output named '{}' ({:?}) is disjoint with types requested by subscriber ({:?})",
+                    conn_name, supported_output_types, requested_types))
+            }
+        } else {
             return Err(format!(
                 "cannot subscribe to conn named '{}' (expected one of {:?})",
                 conn_name,
                 self.outputs.keys()
             ));
         }
-
-        let chans_per_type = self.subscriber_chans.get_mut(&conn_name).unwrap();
-        let mut types = vec![];
-        for (tpe, chan) in chans_per_type {
-            for supported_type in supported_types {
-                if supported_type == tpe {
-                    chan.subscribe(r);
-                    return Ok(tpe.clone());
-                }
-            }
-            types.push(tpe.clone());
-        }
-        Err(format!("supported type set for output named '{}' ({:?}) is disjoint with supported types for subscriber ({:?})",
-            conn_name, types, supported_types))
     }
 
     async fn produce_outputs(&mut self, events: Vec<Event>) -> Result<(), String> {
@@ -142,7 +183,10 @@ impl<T: Node> Message<Arc<Event>> for NodeActor<T> {
         // Before sending the event to the Node, remap its conn_name from the output of the sender
         // to the input of this Node.
         if let Some(input_conn_name) = self.input_conn_name_mapping.get(&ev.conn_name) {
-            match self.node.handle_event(input_conn_name, ev.clone()) {
+            match self
+                .node
+                .handle_event(&self.current_context, input_conn_name, ev.clone())
+            {
                 Ok((events, status)) => {
                     match self.produce_outputs(events).await {
                         Ok(()) => {}
