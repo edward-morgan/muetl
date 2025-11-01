@@ -9,12 +9,18 @@ use std::{
 use futures::{stream, Stream};
 use kameo::{actor::ActorRef, error::Infallible, message::StreamMessage, prelude::Message, Actor};
 use kameo_actors::pubsub::PubSub;
-use tokio::sync::{self, mpsc};
+use tokio::{
+    select,
+    sync::{
+        self,
+        mpsc::{self, Sender},
+    },
+};
 use tokio_stream::StreamExt;
 
 use crate::{
     messages::{event::Event, StatusUpdate},
-    task_defs::{daemon::Daemon, TaskResult},
+    task_defs::{daemon::Daemon, MuetlContext, TaskResult},
     util::new_id,
 };
 
@@ -30,6 +36,7 @@ where
     /// For each output conn_name, keep a mapping of negotiated types to the PubSub channels results will be sent on.
     subscriber_chans: HashMap<String, HashMap<TypeId, PubSub<EventMessage>>>,
     monitor_chan: PubSub<StatusUpdate>,
+    current_context: MuetlContext,
 }
 
 impl<T: Daemon> DaemonActor<T> {
@@ -47,12 +54,42 @@ impl<T: Daemon> DaemonActor<T> {
             subscriber_chans.insert(name.clone(), chans_for_conn);
         }
 
+        let (results_tx, _) = mpsc::channel(1);
+        let (status_tx, _) = mpsc::channel(1);
+
         DaemonActor {
             id: new_id(),
             daemon,
             outputs,
             subscriber_chans,
             monitor_chan,
+            current_context: MuetlContext {
+                current_subscribers: HashMap::new(),
+                results: results_tx,
+                status: status_tx,
+            },
+        }
+    }
+
+    /// Update the current MuetlContext with the given TypeId for the given output conn_name.
+    /// This updates the context that is passed to the wrapped node and should be called
+    /// whenever a new subscription request is validated against this Node.
+    fn add_subscriber_to_context(&mut self, conn_name: String, tpe: TypeId) {
+        // Allow panics here because the input should have already been validated.
+        let subs = self
+            .current_context
+            .current_subscribers
+            .get_mut(&conn_name)
+            .unwrap();
+
+        if !subs.contains(&tpe) {
+            subs.push(tpe);
+        }
+    }
+
+    fn remove_subscriber_from_context(&mut self, conn_name: String, tpe: TypeId) {
+        if let Some(subs_for_conn) = self.current_context.current_subscribers.get_mut(&conn_name) {
+            subs_for_conn.extract_if(.., |t| tpe == *t);
         }
     }
     /// Subscribes the given ActorRef to the output conn_name. If the
@@ -73,30 +110,47 @@ impl<T: Daemon> DaemonActor<T> {
         &mut self,
         conn_name: String,
         r: ActorRef<Subscriber>,
-        supported_types: &Vec<TypeId>,
+        requested_types: &Vec<TypeId>,
     ) -> Result<TypeId, String> {
-        if !self.subscriber_chans.contains_key(&conn_name) {
+        // If the conn_name exists
+        if let Some(supported_output_types) = self.outputs.get(&conn_name) {
+            // Search for the first output type that is contained in the set of
+            // types requested by the subscriber. Note that ordering matters here -
+            // the earlier in the requested type set a TypeId is, the higher
+            // priority it has of being matched.
+            if let Some(matching_type) = requested_types
+                .iter()
+                .find(|&requested_type| supported_output_types.contains(requested_type))
+            {
+                // TODO: we need to add special support for matching against RegisteredType, which
+                // should consist of making sure the given TypeId exists in some global registry of
+                // structs.
+                let subscriber_chans = self.subscriber_chans.get_mut(&conn_name).unwrap();
+                // If it already exists in subscriber_chans, just subscribe to the PubSub
+                if let Some(chan_for_type) = subscriber_chans.get_mut(matching_type) {
+                    chan_for_type.subscribe(r);
+                } else {
+                    // Create a new PubSub for the given type and subscribe to it.
+                    let mut chan =
+                        PubSub::<EventMessage>::new(kameo_actors::DeliveryStrategy::Guaranteed);
+                    chan.subscribe(r);
+                    subscriber_chans.insert(matching_type.clone(), chan);
+                }
+                // Make sure to update the current MuetlContext so that the wrapped Node knows that
+                // it should generate outputs for the given type.
+                self.add_subscriber_to_context(conn_name, matching_type.clone());
+                return Ok(matching_type.clone());
+            } else {
+                Err(format!("supported type set for output named '{}' ({:?}) is disjoint with types requested by subscriber ({:?})",
+                    conn_name, supported_output_types, requested_types))
+            }
+        } else {
             return Err(format!(
                 "cannot subscribe to conn named '{}' (expected one of {:?})",
                 conn_name,
                 self.outputs.keys()
             ));
         }
-
-        // TODO: the subscribe logic here should match what's in Node exactly.
-        let chans_per_type = self.subscriber_chans.get_mut(&conn_name).unwrap();
-        let mut types = vec![];
-        for (tpe, chan) in chans_per_type {
-            for supported_type in supported_types {
-                if supported_type == tpe {
-                    chan.subscribe(r);
-                    return Ok(tpe.clone());
-                }
-            }
-            types.push(tpe.clone());
-        }
-        Err(format!("supported type set for output named '{}' ({:?}) is disjoint with supported types for subscriber ({:?})",
-            conn_name, types, supported_types))
     }
 
     async fn produce_outputs(&mut self, events: Vec<Event>) -> Result<(), String> {
@@ -132,26 +186,45 @@ impl<T: Daemon> Message<()> for DaemonActor<T> {
         _: (),
         ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        // TODO: Add MuetlContext similar to Node's. Maybe pull that common functionality out into a trait?
-        match self.daemon.run() {
-            Ok((events, status)) => {
-                match self.produce_outputs(events).await {
-                    Ok(()) => {}
-                    Err(reason) => println!("failed to produce events: {}", reason),
+        let (results_tx, mut results_rx) = mpsc::channel(100);
+        let (status_tx, mut status_rx) = mpsc::channel(100);
+
+        self.current_context.results = results_tx;
+        self.current_context.status = status_tx;
+
+        let daemon = &mut self.daemon;
+        let fut = tokio::spawn(async move { daemon.run(&self.current_context) });
+
+        loop {
+            select! {
+                Some(result) = results_rx.recv() =>{
+                    // match self.produce_outputs(vec![result]).await {
+                    //                 Ok(()) => {}
+                    //                 Err(reason) => println!("failed to produce events: {}", reason),
+                    //             };
                 }
-                if let Some(stat) = status {
-                    self.monitor_chan
-                        .publish(StatusUpdate {
-                            id: self.id,
-                            status: stat,
-                        })
-                        .await
-                }
-                // Immediately enqueue another run
-                ctx.actor_ref().tell(()).await.unwrap();
             }
-            Err(reason) => println!("Daemon encountered error: {}", reason),
         }
+
+        fut.await;
+        // match self.daemon.run(&self.current_context).await {
+        //     TaskResult::Pass => {}
+        //     // TaskResult::Status(status) => {
+        //     //     self.monitor_chan
+        //     //         .publish(StatusUpdate {
+        //     //             id: self.id,
+        //     //             status,
+        //     //         })
+        //     //         .await
+        //     // }
+        //     TaskResult::Events(events) => match self.produce_outputs(events).await {
+        //         Ok(()) => {}
+        //         Err(reason) => println!("failed to produce events: {}", reason),
+        //     },
+        //     TaskResult::Error(reason) => {
+        //         println!("Daemon encountered error: {}", reason)
+        //     }
+        // }
     }
 }
 

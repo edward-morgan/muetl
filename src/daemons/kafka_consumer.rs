@@ -1,18 +1,22 @@
 use std::any::TypeId;
 use std::collections::HashMap;
+use std::time::Duration;
 
 use crate::task_defs::daemon::Daemon;
 use crate::task_defs::{
     ConfigField, HasOutputs, MuetlContext, Output, RegisteredType, TaskConfig, TaskConfigTpl,
-    TaskDef,
+    TaskDef, TaskResult,
 };
 use envconfig::Envconfig;
 use futures::Stream;
 use rdkafka::consumer::{BaseConsumer, CommitMode, Consumer, ConsumerContext, Rebalance};
+use rdkafka::message::{BorrowedMessage, OwnedMessage};
+use rdkafka::util::Timeout;
+use rdkafka::Message;
 use rdkafka::{consumer::StreamConsumer, ClientConfig};
 
 pub struct KafkaConsumer {
-    consumer: Option<StreamConsumer>,
+    consumer: Option<BaseConsumer>,
 }
 
 impl KafkaConsumer {
@@ -44,7 +48,7 @@ impl TaskDef for KafkaConsumer {
             )
             .set_log_level(rdkafka::config::RDKafkaLogLevel::Debug);
 
-        let consumer: StreamConsumer = config.create().expect("Kafka consumer creation failed!");
+        let consumer: BaseConsumer = config.create().expect("Kafka consumer creation failed!");
 
         let topic = task_config
             .get("input.topic")
@@ -69,7 +73,7 @@ impl TaskDef for KafkaConsumer {
 /// Note that this only means the consumer will *try* to deserialize Kafka messages into the
 /// given type; if they aren't deserializable, only support deserialization from a particular
 /// type (ex. Protobuf when the topic contains XML), then runtime errors will occur.
-impl Output<RegisteredType> for KafkaConsumer {
+impl Output<OwnedMessage> for KafkaConsumer {
     const conn_name: &'static str = "deserialized_message";
 }
 
@@ -85,7 +89,16 @@ impl HasOutputs for KafkaConsumer {
 }
 
 impl Daemon for KafkaConsumer {
-    fn run(&mut self, ctx: &MuetlContext) -> crate::task_defs::TaskResult {
+    async fn run(&mut self, ctx: &MuetlContext) -> crate::task_defs::TaskResult {
+        match self
+            .consumer
+            .unwrap()
+            .poll(Timeout::After(Duration::from_millis(1000)))
+        {
+            None => Ok((vec![], None)),
+            Some(Err(e)) => Err(e.to_string()),
+            Some(Ok(m)) => Ok((vec![TaskResult {}])),
+        }
         Err(format!("unimplemented"))
     }
 }

@@ -6,6 +6,8 @@ pub mod task;
 
 use std::{any::TypeId, collections::HashMap, sync::Arc};
 
+use tokio::sync::mpsc::{self, Sender};
+
 use crate::messages::{event::Event, Status};
 
 /// A TaskDef represents any process that is executed by muetl.
@@ -72,6 +74,8 @@ pub struct MuetlContext {
     /// Note that `current_subscribers` may change between calls to a producer's run function
     /// as new Tasks subscribe or unsubscribe.
     pub current_subscribers: HashMap<String, Vec<TypeId>>,
+    pub results: Sender<Event>,
+    pub status: Sender<Status>,
 }
 
 pub trait HasInputs: TaskDef {
@@ -83,7 +87,12 @@ pub trait HasInputs: TaskDef {
 /// conn_name.
 pub trait Input<T> {
     const conn_name: &'static str;
-    fn handle(&mut self, ctx: &MuetlContext, input: &T) -> TaskResult;
+    async fn handle(
+        &mut self,
+        ctx: &MuetlContext,
+        input: &T,
+        status: &mut mpsc::Sender<Status>,
+    ) -> TaskResult;
 }
 
 /// Users should implement Output<Some Type> to declare that their Daemon,
@@ -110,7 +119,15 @@ pub struct RegisteredType {
 /// as output messages. If `status` is present, then it is separately produced
 /// to the Monitoring service. Use `status` to report state changes like
 /// % complete, active, or finished.
-pub type TaskResult = Result<(Vec<Event>, Option<Status>), String>;
+// pub type TaskResult = Result<(Vec<Event>, Option<Status>), String>;
+
+#[derive(Debug)]
+pub enum TaskResult {
+    Pass,
+    Events(Vec<Event>),
+    // Status(Status),
+    Error(String),
+}
 
 /// A particular configuration property that a TaskDef looks for. At runtime, the template
 /// will be processed, and a `TaskConfig` will be returned.

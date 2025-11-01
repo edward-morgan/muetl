@@ -1,17 +1,19 @@
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
+    future::Future,
     sync::Arc,
 };
 
-use crate::messages::event::Event;
+use tokio::sync::mpsc;
+
+use crate::messages::{event::Event, Status};
 use crate::task_defs::TaskDef;
 use crate::task_defs::TaskResult;
 
 use super::{HasInputs, HasOutputs, MuetlContext};
 
 pub trait Node: HasInputs + HasOutputs + Send + Sync {
-    // fn get_negotiated_types_for_conn(&self) -> Vec<TypeId>;
     /// Handle an Event sent to conn_name. The handler should disregard the conn_name
     /// inside the Event; that will be the name of the output conn from the source.
     fn handle_event_for_conn(
@@ -19,7 +21,8 @@ pub trait Node: HasInputs + HasOutputs + Send + Sync {
         ctx: &MuetlContext,
         conn_name: &String,
         ev: Arc<Event>,
-    ) -> TaskResult;
+        status: &mut mpsc::Sender<Status>,
+    ) -> impl Future<Output = TaskResult> + Send;
 
     /// Wrapper around `handle_event_for_conn()` that performs runtime type checking against the types
     /// specified by `get_outputes()`.
@@ -28,17 +31,32 @@ pub trait Node: HasInputs + HasOutputs + Send + Sync {
         ctx: &MuetlContext,
         conn_name: &String,
         ev: Arc<Event>,
-    ) -> TaskResult {
-        match self.handle_event_for_conn(ctx, conn_name, ev.clone()) {
-            Ok((events, status)) => {
-                // Validate each of the outputs against the types
-                if let Err(reason) = self.validate_output(&events) {
-                    Err(reason)
-                } else {
-                    Ok((events, status))
+        status: &mut mpsc::Sender<Status>,
+    ) -> impl std::future::Future<Output = TaskResult> + std::marker::Send {
+        async move {
+            match self
+                .handle_event_for_conn(ctx, conn_name, ev.clone(), status)
+                .await
+            {
+                // Ok((events, status)) => {
+                //     // Validate each of the outputs against the types
+                //     if let Err(reason) = self.validate_output(&events) {
+                //         Err(reason)
+                //     } else {
+                //         Ok((events, status))
+                //     }
+                // }
+                // e => e,
+                TaskResult::Events(events) => {
+                    // Validate each of the outputs against the types
+                    if let Err(reason) = self.validate_output(&events) {
+                        TaskResult::Error(reason)
+                    } else {
+                        TaskResult::Events(events)
+                    }
                 }
+                res => res,
             }
-            e => e,
         }
     }
 }

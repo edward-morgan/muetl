@@ -47,17 +47,17 @@ impl MyNode {
     }
 }
 
-fn print_inputs_outputs_for(node: &dyn Node) {
-    let inputs = node.get_inputs();
-    let outputs = node.get_outputs();
+// fn print_inputs_outputs_for(node: &dyn Node) {
+//     let inputs = node.get_inputs();
+//     let outputs = node.get_outputs();
 
-    println!("Inputs:");
-    for (name, type_ids) in &inputs {
-        println!("  {} -> {:?}", name, type_ids);
-    }
+//     println!("Inputs:");
+//     for (name, type_ids) in &inputs {
+//         println!("  {} -> {:?}", name, type_ids);
+//     }
 
-    println!("Outputs:");
-    for (name, type_id) in &outputs {
-        println!("  {} -> {:?}", name, type_id);
-    }
-}
+//     println!("Outputs:");
+//     for (name, type_id) in &outputs {
+//         println!("  {} -> {:?}", name, type_id);
+//     }
+// }

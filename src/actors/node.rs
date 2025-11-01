@@ -1,5 +1,5 @@
-use crate::messages::StatusUpdate;
-use crate::task_defs::MuetlContext;
+use crate::messages::{Status, StatusUpdate};
+use crate::task_defs::{MuetlContext, TaskResult};
 use crate::util::new_id;
 use kameo::actor::ActorRef;
 use kameo::message::{Context, Message};
@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::panic;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
 use crate::messages::event::Event;
 use crate::task_defs::{node::Node, Input};
@@ -33,6 +34,7 @@ where
     input_conn_name_mapping: HashMap<String, String>,
     monitor_chan: PubSub<StatusUpdate>,
     current_context: MuetlContext,
+    status: (mpsc::Sender<Status>, mpsc::Receiver<Status>),
 }
 
 impl<T: Node> NodeActor<T> {
@@ -52,7 +54,11 @@ impl<T: Node> NodeActor<T> {
         }
     }
 
-    // TODO: On unsubscribe, add a corresponding remove_subscriber_from_context()
+    fn remove_subscriber_from_context(&mut self, conn_name: String, tpe: TypeId) {
+        if let Some(subs_for_conn) = self.current_context.current_subscribers.get_mut(&conn_name) {
+            subs_for_conn.extract_if(.., |t| tpe == *t);
+        }
+    }
 }
 
 impl<T: Node> NodeActor<T> {
@@ -77,6 +83,7 @@ impl<T: Node> NodeActor<T> {
             current_context: MuetlContext {
                 current_subscribers: HashMap::new(),
             },
+            status: mpsc::channel(100),
         }
     }
 
@@ -185,23 +192,31 @@ impl<T: Node> Message<Arc<Event>> for NodeActor<T> {
         if let Some(input_conn_name) = self.input_conn_name_mapping.get(&ev.conn_name) {
             match self
                 .node
-                .handle_event(&self.current_context, input_conn_name, ev.clone())
+                .handle_event(
+                    &self.current_context,
+                    input_conn_name,
+                    ev.clone(),
+                    &mut self.status.0,
+                )
+                .await
+            // TODO: handle status chan
             {
-                Ok((events, status)) => {
-                    match self.produce_outputs(events).await {
-                        Ok(()) => {}
-                        Err(reason) => println!("failed to produce events: {}", reason),
-                    }
-                    if let Some(stat) = status {
-                        self.monitor_chan
-                            .publish(StatusUpdate {
-                                id: self.id,
-                                status: stat,
-                            })
-                            .await
-                    }
+                TaskResult::Pass => {}
+                // TaskResult::Status(status) => {
+                //     self.monitor_chan
+                //         .publish(StatusUpdate {
+                //             id: self.id,
+                //             status,
+                //         })
+                //         .await
+                // }
+                TaskResult::Events(events) => match self.produce_outputs(events).await {
+                    Ok(()) => {}
+                    Err(reason) => println!("failed to produce events: {}", reason),
+                },
+                TaskResult::Error(reason) => {
+                    println!("Error handling event named {}: {}", ev.name, reason)
                 }
-                Err(reason) => println!("Error handling event named {}: {}", ev.name, reason),
             }
         }
     }

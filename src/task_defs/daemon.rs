@@ -6,7 +6,7 @@ use std::{
 };
 
 use kameo::{actor::ActorRef, prelude::Message, Actor};
-use tokio::sync;
+use tokio::sync::{self, mpsc::Sender};
 use tokio_stream::Stream;
 
 use crate::messages::event::Event;
@@ -32,5 +32,5 @@ pub trait Daemon: HasOutputs + Send + Sync {
         Ok(())
     }
 
-    fn run(&mut self, ctx: &MuetlContext) -> TaskResult;
+    fn run(&mut self, ctx: &MuetlContext);
 }
