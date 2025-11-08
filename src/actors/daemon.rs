@@ -1,8 +1,9 @@
 use std::{
     any::TypeId,
+    cell::RefCell,
     collections::HashMap,
     pin::{self, pin},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -19,19 +20,21 @@ use tokio::{
 use tokio_stream::StreamExt;
 
 use crate::{
-    messages::{event::Event, StatusUpdate},
+    messages::{event::Event, Status, StatusUpdate},
     task_defs::{daemon::Daemon, MuetlContext, TaskResult},
     util::new_id,
 };
 
 use super::EventMessage;
 
+type OwnedDaemon<T: Daemon + Send> = Option<Box<T>>;
+
 pub struct DaemonActor<T: 'static>
 where
-    T: Daemon,
+    T: Daemon + Send,
 {
     id: u32,
-    daemon: Box<T>,
+    daemon: OwnedDaemon<T>,
     outputs: HashMap<String, Vec<TypeId>>,
     /// For each output conn_name, keep a mapping of negotiated types to the PubSub channels results will be sent on.
     subscriber_chans: HashMap<String, HashMap<TypeId, PubSub<EventMessage>>>,
@@ -40,8 +43,8 @@ where
 }
 
 impl<T: Daemon> DaemonActor<T> {
-    fn new(daemon: Box<T>, monitor_chan: PubSub<StatusUpdate>) -> Self {
-        let outputs = daemon.get_outputs();
+    fn new(daemon: OwnedDaemon<T>, monitor_chan: PubSub<StatusUpdate>) -> Self {
+        let outputs = daemon.as_ref().unwrap().get_outputs();
         let mut subscriber_chans = HashMap::<String, HashMap<TypeId, PubSub<EventMessage>>>::new();
         for (name, supported_types) in &outputs {
             let mut chans_for_conn = HashMap::new();
@@ -153,27 +156,25 @@ impl<T: Daemon> DaemonActor<T> {
         }
     }
 
-    async fn produce_outputs(&mut self, events: Vec<Event>) -> Result<(), String> {
-        for event in events {
-            // TODO: we need to check that if an Event is produced for a conn_name, a matching Event has been produced
-            // for EVERY VARIANT of that conn_name's negotiated types
-            if let Some(subs_for_conn) = self.subscriber_chans.get_mut(&event.conn_name) {
-                if let Some(chan) = subs_for_conn.get_mut(&event.get_data().type_id()) {
-                    chan.publish(Arc::new(event)).await;
-                } else {
-                    return Err(format!(
+    async fn produce_output(&mut self, event: Event) -> Result<(), String> {
+        // TODO: we need to check that if an Event is produced for a conn_name, a matching Event has been produced
+        // for EVERY VARIANT of that conn_name's negotiated types
+        if let Some(subs_for_conn) = self.subscriber_chans.get_mut(&event.conn_name) {
+            if let Some(chan) = subs_for_conn.get_mut(&event.get_data().type_id()) {
+                chan.publish(Arc::new(event)).await;
+            } else {
+                return Err(format!(
                         "output validation failed: type for output conn named '{}' ({:?}) does not match negotiated types {:?}",
                         event.conn_name,
                         event.get_data().type_id(),
                         subs_for_conn.keys(),
                     ));
-                }
-            } else {
-                return Err(format!(
-                    "output validation failed: failed to find output named '{}'",
-                    event.conn_name
-                ));
             }
+        } else {
+            return Err(format!(
+                "output validation failed: failed to find output named '{}'",
+                event.conn_name
+            ));
         }
         Ok(())
     }
@@ -189,42 +190,54 @@ impl<T: Daemon> Message<()> for DaemonActor<T> {
         let (results_tx, mut results_rx) = mpsc::channel(100);
         let (status_tx, mut status_rx) = mpsc::channel(100);
 
-        self.current_context.results = results_tx;
-        self.current_context.status = status_tx;
+        // Create a context for the daemon to own
+        let daemon_context = MuetlContext {
+            current_subscribers: self.current_context.current_subscribers.clone(),
+            results: results_tx,
+            status: status_tx,
+        };
+        let mut daemon = self.daemon.take().unwrap();
 
-        let daemon = &mut self.daemon;
-        let fut = tokio::spawn(async move { daemon.run(&self.current_context) });
+        let mut fut = tokio::spawn(async move {
+            daemon.run(&daemon_context);
+            daemon
+        });
 
         loop {
             select! {
-                Some(result) = results_rx.recv() =>{
-                    // match self.produce_outputs(vec![result]).await {
-                    //                 Ok(()) => {}
-                    //                 Err(reason) => println!("failed to produce events: {}", reason),
-                    //             };
+                Some(result) = results_rx.recv() => {
+                    match self.produce_output(result).await {
+                        Ok(()) => break,
+                         Err(reason) => println!("failed to produce events: {}", reason),
+                    }
+                }
+                Some(status) = status_rx.recv() => {
+                    let update = StatusUpdate{status: status, id: self.id};
+                    self.monitor_chan.publish(update).await;
+                }
+                join_result = &mut fut => {
+                    match join_result {
+                        Ok(daemon) => {
+                            println!("Run finished");
+                            // Replace the daemon
+                            self.daemon = Some(daemon);
+                            // Enqueue another iteration
+                            ctx.actor_ref().tell(()).await.unwrap();
+                        },
+                        // Don't enqueue another iteration
+                        Err(e) => {
+                            println!("Daemon task panicked: {:?}", e);
+                            // Send a failure message to the monitor
+                            self.monitor_chan.publish(StatusUpdate{id: self.id, status: Status::Failed(e.to_string())}).await;
+                            // Stop the current task
+                            ctx.stop();
+                        },
+                    }
+                    // Once the future returns, break
+                    break;
                 }
             }
         }
-
-        fut.await;
-        // match self.daemon.run(&self.current_context).await {
-        //     TaskResult::Pass => {}
-        //     // TaskResult::Status(status) => {
-        //     //     self.monitor_chan
-        //     //         .publish(StatusUpdate {
-        //     //             id: self.id,
-        //     //             status,
-        //     //         })
-        //     //         .await
-        //     // }
-        //     TaskResult::Events(events) => match self.produce_outputs(events).await {
-        //         Ok(()) => {}
-        //         Err(reason) => println!("failed to produce events: {}", reason),
-        //     },
-        //     TaskResult::Error(reason) => {
-        //         println!("Daemon encountered error: {}", reason)
-        //     }
-        // }
     }
 }
 
