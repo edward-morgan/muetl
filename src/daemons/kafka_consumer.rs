@@ -1,7 +1,10 @@
 use std::any::TypeId;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
+use crate::messages::event::Event;
+use crate::messages::Status;
 use crate::task_defs::daemon::Daemon;
 use crate::task_defs::{
     ConfigField, HasOutputs, MuetlContext, Output, RegisteredType, TaskConfig, TaskConfigTpl,
@@ -89,16 +92,25 @@ impl HasOutputs for KafkaConsumer {
 }
 
 impl Daemon for KafkaConsumer {
-    async fn run(&mut self, ctx: &MuetlContext) -> crate::task_defs::TaskResult {
+    fn run(&mut self, ctx: &MuetlContext) {
         match self
             .consumer
+            .as_ref()
             .unwrap()
             .poll(Timeout::After(Duration::from_millis(1000)))
         {
-            None => Ok((vec![], None)),
-            Some(Err(e)) => Err(e.to_string()),
-            Some(Ok(m)) => Ok((vec![TaskResult {}])),
+            None => {}
+            Some(Err(e)) => {
+                println!("Error consuming from kafka: {}", e.to_string());
+            }
+            Some(Ok(m)) => {
+                ctx.results.send(Event::new(
+                    "".to_string(),
+                    "deserialized_message".to_string(),
+                    HashMap::new(),
+                    Arc::new(m.detach()),
+                ));
+            }
         }
-        Err(format!("unimplemented"))
     }
 }

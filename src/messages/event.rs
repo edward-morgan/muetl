@@ -18,7 +18,7 @@ pub struct Event {
 }
 
 impl Event {
-    fn new(
+    pub fn new(
         name: String,
         conn_name: String,
         headers: HashMap<String, String>,
