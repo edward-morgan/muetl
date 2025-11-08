@@ -1,13 +1,5 @@
-use std::{
-    any::{Any, TypeId},
-    collections::HashMap,
-    sync::{Arc, Mutex},
-    task::Poll,
-};
+use std::any::Any;
 
-use kameo::{actor::ActorRef, prelude::Message, Actor};
-use tokio::sync::{self, mpsc::Sender};
-use tokio_stream::Stream;
 
 use crate::messages::event::Event;
 use crate::task_defs::*;

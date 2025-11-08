@@ -1,7 +1,5 @@
-use std::{any::TypeId, collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
-use kameo::{actor::ActorRef, prelude::Message, Actor};
-use kameo_actors::pubsub::PubSub;
 
 use crate::messages::event::Event;
 

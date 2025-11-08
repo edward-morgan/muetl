@@ -1,6 +1,4 @@
 use std::{
-    any::{Any, TypeId},
-    collections::HashMap,
     future::Future,
     sync::Arc,
 };
@@ -8,7 +6,6 @@ use std::{
 use tokio::sync::mpsc;
 
 use crate::messages::{event::Event, Status};
-use crate::task_defs::TaskDef;
 use crate::task_defs::TaskResult;
 
 use super::{HasInputs, HasOutputs, MuetlContext};

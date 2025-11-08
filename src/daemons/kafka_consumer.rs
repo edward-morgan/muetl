@@ -4,19 +4,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::messages::event::Event;
-use crate::messages::Status;
 use crate::task_defs::daemon::Daemon;
 use crate::task_defs::{
     ConfigField, HasOutputs, MuetlContext, Output, RegisteredType, TaskConfig, TaskConfigTpl,
-    TaskDef, TaskResult,
+    TaskDef,
 };
-use envconfig::Envconfig;
-use futures::Stream;
-use rdkafka::consumer::{BaseConsumer, CommitMode, Consumer, ConsumerContext, Rebalance};
-use rdkafka::message::{BorrowedMessage, OwnedMessage};
+use rdkafka::consumer::{BaseConsumer, Consumer};
+use rdkafka::message::OwnedMessage;
 use rdkafka::util::Timeout;
-use rdkafka::Message;
-use rdkafka::{consumer::StreamConsumer, ClientConfig};
+use rdkafka::ClientConfig;
 
 pub struct KafkaConsumer {
     consumer: Option<BaseConsumer>,

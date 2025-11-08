@@ -1,33 +1,26 @@
 use std::{
     any::TypeId,
-    cell::RefCell,
     collections::HashMap,
-    pin::{self, pin},
-    sync::{Arc, Mutex},
-    time::Duration,
+    sync::Arc,
 };
 
-use futures::{stream, Stream};
-use kameo::{actor::ActorRef, error::Infallible, message::StreamMessage, prelude::Message, Actor};
+use kameo::{actor::ActorRef, error::Infallible, prelude::Message, Actor};
 use kameo_actors::pubsub::PubSub;
 use tokio::{
     select,
-    sync::{
-        self,
-        mpsc::{self, Sender},
-    },
+    sync::mpsc::{self},
 };
 use tokio_stream::StreamExt;
 
 use crate::{
     messages::{event::Event, Status, StatusUpdate},
-    task_defs::{daemon::Daemon, MuetlContext, TaskResult},
+    task_defs::{daemon::Daemon, MuetlContext},
     util::new_id,
 };
 
 use super::EventMessage;
 
-type OwnedDaemon<T: Daemon + Send> = Option<Box<T>>;
+type OwnedDaemon<T> = Option<Box<T>>;
 
 pub struct DaemonActor<T: 'static>
 where

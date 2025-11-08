@@ -1,4 +1,4 @@
-use std::{any::TypeId, collections::HashMap};
+use std::collections::HashMap;
 mod messages;
 #[macro_use]
 mod task_defs;
@@ -6,7 +6,6 @@ mod actors;
 mod daemons;
 mod util;
 
-use crate::task_defs::node::Node;
 use kameo::{
     prelude::{Context, Message},
     Actor,

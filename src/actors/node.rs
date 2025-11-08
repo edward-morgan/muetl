@@ -7,8 +7,6 @@ use kameo::Actor;
 use kameo_actors::pubsub::PubSub;
 use std::any::TypeId;
 use std::collections::HashMap;
-use std::ops::Deref;
-use std::panic;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -71,6 +69,8 @@ impl<T: Node> NodeActor<T> {
         outputs.iter().for_each(|(conn_name, _)| {
             subscriber_chans.insert(conn_name.clone(), HashMap::new());
         });
+        let (results_tx, _) = mpsc::channel(1);
+        let (status_tx, _) = mpsc::channel(1);
 
         NodeActor {
             id: new_id(),
@@ -81,6 +81,8 @@ impl<T: Node> NodeActor<T> {
             input_conn_name_mapping: HashMap::new(),
             monitor_chan,
             current_context: MuetlContext {
+                results: results_tx,
+                status: status_tx,
                 current_subscribers: HashMap::new(),
             },
             status: mpsc::channel(100),

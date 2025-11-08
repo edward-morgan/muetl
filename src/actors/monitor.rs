@@ -1,9 +1,9 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::Mutex,
 };
 
-use kameo::{actor::ActorRef, prelude::Message, Actor};
+use kameo::{prelude::Message, Actor};
 
 use crate::messages::{RetrieveStatus, Status, StatusUpdate};
 

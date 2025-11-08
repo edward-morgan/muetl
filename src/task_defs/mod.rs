@@ -4,7 +4,7 @@ pub mod sink;
 pub mod source;
 pub mod task;
 
-use std::{any::TypeId, collections::HashMap, sync::Arc};
+use std::{any::TypeId, collections::HashMap};
 
 use tokio::sync::mpsc::{self, Sender};
 
