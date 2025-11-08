@@ -1,6 +1,5 @@
 use std::any::Any;
 
-
 use crate::messages::event::Event;
 use crate::task_defs::*;
 
@@ -24,5 +23,5 @@ pub trait Daemon: HasOutputs + Send + Sync {
         Ok(())
     }
 
-    fn run(&mut self, ctx: &MuetlContext);
+    fn run(&mut self, ctx: &MuetlContext) -> impl std::future::Future<Output = ()> + Send;
 }

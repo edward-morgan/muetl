@@ -1,8 +1,4 @@
-use std::{
-    any::TypeId,
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{any::TypeId, collections::HashMap, sync::Arc};
 
 use kameo::{actor::ActorRef, error::Infallible, prelude::Message, Actor};
 use kameo_actors::pubsub::PubSub;
@@ -50,6 +46,7 @@ impl<T: Daemon> DaemonActor<T> {
             subscriber_chans.insert(name.clone(), chans_for_conn);
         }
 
+        // Throwaway
         let (results_tx, _) = mpsc::channel(1);
         let (status_tx, _) = mpsc::channel(1);
 
@@ -192,7 +189,7 @@ impl<T: Daemon> Message<()> for DaemonActor<T> {
         let mut daemon = self.daemon.take().unwrap();
 
         let mut fut = tokio::spawn(async move {
-            daemon.run(&daemon_context);
+            daemon.run(&daemon_context).await;
             daemon
         });
 

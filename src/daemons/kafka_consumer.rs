@@ -25,6 +25,9 @@ impl KafkaConsumer {
 }
 
 impl TaskDef for KafkaConsumer {
+    fn new() -> Self {
+        KafkaConsumer { consumer: None }
+    }
     fn task_config_tpl(&self) -> Option<crate::task_defs::TaskConfigTpl> {
         Some(TaskConfigTpl {
             fields: vec![
@@ -88,7 +91,7 @@ impl HasOutputs for KafkaConsumer {
 }
 
 impl Daemon for KafkaConsumer {
-    fn run(&mut self, ctx: &MuetlContext) {
+    async fn run(&mut self, ctx: &MuetlContext) {
         match self
             .consumer
             .as_ref()
@@ -100,12 +103,15 @@ impl Daemon for KafkaConsumer {
                 println!("Error consuming from kafka: {}", e.to_string());
             }
             Some(Ok(m)) => {
-                ctx.results.send(Event::new(
-                    "".to_string(),
-                    "deserialized_message".to_string(),
-                    HashMap::new(),
-                    Arc::new(m.detach()),
-                ));
+                ctx.results
+                    .send(Event::new(
+                        "".to_string(),
+                        "deserialized_message".to_string(),
+                        HashMap::new(),
+                        Arc::new(m.detach()),
+                    ))
+                    .await
+                    .unwrap();
             }
         }
     }

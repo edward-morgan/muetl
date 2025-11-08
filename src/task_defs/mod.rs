@@ -12,6 +12,7 @@ use crate::messages::{event::Event, Status};
 
 /// A TaskDef represents any process that is executed by muetl.
 pub trait TaskDef {
+    fn new() -> Self;
     /// TaskDefs may implement this to return the list of configuration options
     /// they may expect. By default, no configuration options are processed.
     fn task_config_tpl(&self) -> Option<TaskConfigTpl> {

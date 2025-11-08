@@ -19,6 +19,9 @@ use crate::task_defs::*;
 struct Test {}
 
 impl TaskDef for Test {
+    fn new() -> Self {
+        Test {}
+    }
     fn init(&mut self, config: TaskConfig) -> Result<(), String> {
         Ok(())
     }
