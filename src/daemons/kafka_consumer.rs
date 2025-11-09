@@ -25,8 +25,26 @@ impl KafkaConsumer {
 }
 
 impl TaskDef for KafkaConsumer {
-    fn new() -> Self {
-        KafkaConsumer { consumer: None }
+    fn new(task_config: &TaskConfig) -> Result<Box<Self>, String> {
+        let mut config = ClientConfig::new();
+        config
+            .set(
+                "bootstrap.servers",
+                String::try_from(task_config.get("bootstrap.servers").unwrap()).unwrap(),
+            )
+            .set_log_level(rdkafka::config::RDKafkaLogLevel::Debug);
+
+        let consumer: BaseConsumer = config.create().expect("Kafka consumer creation failed!");
+
+        let topic = String::try_from(task_config.get("input.topic").unwrap()).unwrap();
+
+        consumer
+            .subscribe(vec![topic.as_str()].as_slice())
+            .expect(format!("failed to subscribe to topic '{}'", topic).as_str());
+
+        Ok(Box::new(KafkaConsumer {
+            consumer: Some(consumer),
+        }))
     }
     fn task_config_tpl(&self) -> Option<crate::task_defs::TaskConfigTpl> {
         Some(TaskConfigTpl {
@@ -37,35 +55,7 @@ impl TaskDef for KafkaConsumer {
             disallow_unknown_fields: false,
         })
     }
-    fn init(&mut self, task_config: TaskConfig) -> Result<(), String> {
-        let mut config = ClientConfig::new();
-        config
-            .set(
-                "bootstrap.servers",
-                task_config
-                    .get("bootstrap.servers")
-                    .unwrap()
-                    .try_into_str()
-                    .unwrap(),
-            )
-            .set_log_level(rdkafka::config::RDKafkaLogLevel::Debug);
 
-        let consumer: BaseConsumer = config.create().expect("Kafka consumer creation failed!");
-
-        let topic = task_config
-            .get("input.topic")
-            .unwrap()
-            .try_into_str()
-            .unwrap();
-
-        consumer
-            .subscribe(vec![topic.as_str()].as_slice())
-            .expect(format!("failed to subscribe to topic '{}'", topic).as_str());
-
-        self.consumer = Some(consumer);
-
-        Ok(())
-    }
     fn deinit(self) -> Result<(), String> {
         Ok(())
     }

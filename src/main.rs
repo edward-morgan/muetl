@@ -1,62 +1,37 @@
-use std::collections::HashMap;
-mod messages;
-#[macro_use]
-mod task_defs;
 mod actors;
 mod daemons;
+
+mod messages;
+mod task_defs;
 mod util;
 
-use kameo::{
-    prelude::{Context, Message},
-    Actor,
-};
-use kameo_actors::pubsub::PubSub;
-use messages::event::Event;
+use std::{collections::HashMap, thread::sleep, time::Duration};
 
-fn main() {
+use futures::executor::LocalSpawner;
+use kameo::prelude::*;
+use kameo_actors::pubsub::PubSub;
+
+use crate::{
+    actors::daemon::DaemonActor,
+    daemons::ticker::Ticker,
+    task_defs::{TaskConfigValue, TaskDef},
+};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Hello, world!");
 
-    let node = MyNode {};
-    let mut pubsub = PubSub::new(kameo_actors::DeliveryStrategy::BestEffort);
-    let actor_ref = MyActor::spawn(MyActor);
-    // Use PubSub as a standalone object
-    pubsub.subscribe(actor_ref.clone());
-    // pubsub.publish("Hello, World!").await;
+    let mut cfg = HashMap::<String, TaskConfigValue>::new();
+    cfg.insert("period_ms".to_string(), TaskConfigValue::Uint(2000));
+
+    let ticker = Ticker::new(&cfg).unwrap();
+
+    let monitor_chan = PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed);
+    let ticker_daemon = DaemonActor::<Ticker>::new(Some(ticker), monitor_chan);
+
+    let ticker_daemon_ref = DaemonActor::spawn(ticker_daemon);
+
+    sleep(Duration::from_secs(20));
+
+    Ok(())
 }
-#[derive(Actor)]
-struct MyActor;
-
-impl Message<&'static str> for MyActor {
-    type Reply = ();
-    async fn handle(
-        &mut self,
-        msg: &'static str,
-        ctx: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-    }
-}
-
-struct MyNode {}
-
-// Define handler methods
-impl MyNode {
-    fn handle_string(&mut self, input: String) -> HashMap<String, Vec<Event>> {
-        println!("Handling string: {}", input);
-        HashMap::new()
-    }
-}
-
-// fn print_inputs_outputs_for(node: &dyn Node) {
-//     let inputs = node.get_inputs();
-//     let outputs = node.get_outputs();
-
-//     println!("Inputs:");
-//     for (name, type_ids) in &inputs {
-//         println!("  {} -> {:?}", name, type_ids);
-//     }
-
-//     println!("Outputs:");
-//     for (name, type_id) in &outputs {
-//         println!("  {} -> {:?}", name, type_id);
-//     }
-// }

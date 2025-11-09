@@ -12,13 +12,13 @@ use crate::messages::{event::Event, Status};
 
 /// A TaskDef represents any process that is executed by muetl.
 pub trait TaskDef {
-    fn new() -> Self;
+    fn new(config: &TaskConfig) -> Result<Box<Self>, String>;
     /// TaskDefs may implement this to return the list of configuration options
     /// they may expect. By default, no configuration options are processed.
     fn task_config_tpl(&self) -> Option<TaskConfigTpl> {
         None
     }
-    fn init(&mut self, config: TaskConfig) -> Result<(), String>;
+    // fn init(&mut self, config: TaskConfig) -> Result<(), String>;
     fn deinit(self) -> Result<(), String>;
 }
 
@@ -172,6 +172,8 @@ impl ConfigField {
 /// of the TaskConfigTpl it exposes.
 pub type TaskConfig = HashMap<String, TaskConfigValue>;
 // TODO: make TaskConfig a struct so we can override get() with a better version, to prevent having to double-unwrap()
+//
+// TODO: the usage semantics here aren't very good - is there a better way to do things? Can TaskDefs define their own configuration structs? Is there a crate that does this?
 
 pub enum TaskConfigValue {
     Str(String),
@@ -182,12 +184,23 @@ pub enum TaskConfigValue {
     Map(HashMap<String, TaskConfigValue>),
 }
 
-impl TaskConfigValue {
-    pub fn try_into_str(&self) -> Option<String> {
-        match &self {
-            TaskConfigValue::Str(s) => Some(s.clone()),
-            _ => None,
+impl TryFrom<&TaskConfigValue> for u64 {
+    type Error = String;
+    fn try_from(value: &TaskConfigValue) -> Result<Self, Self::Error> {
+        if let TaskConfigValue::Uint(u) = value {
+            Ok(*u)
+        } else {
+            Err(format!("cannot turn value into u64"))
         }
     }
-    // TODO: add other methods
+}
+impl TryFrom<&TaskConfigValue> for String {
+    type Error = String;
+    fn try_from(value: &TaskConfigValue) -> Result<Self, Self::Error> {
+        if let TaskConfigValue::Str(s) = value {
+            Ok(s.clone())
+        } else {
+            Err(format!("cannot turn value into String"))
+        }
+    }
 }

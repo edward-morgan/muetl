@@ -1,5 +1,6 @@
 use std::{any::TypeId, collections::HashMap, sync::Arc};
 
+use futures::FutureExt;
 use kameo::{actor::ActorRef, error::Infallible, prelude::Message, Actor};
 use kameo_actors::pubsub::PubSub;
 use tokio::{
@@ -32,7 +33,7 @@ where
 }
 
 impl<T: Daemon> DaemonActor<T> {
-    fn new(daemon: OwnedDaemon<T>, monitor_chan: PubSub<StatusUpdate>) -> Self {
+    pub fn new(daemon: OwnedDaemon<T>, monitor_chan: PubSub<StatusUpdate>) -> Self {
         let outputs = daemon.as_ref().unwrap().get_outputs();
         let mut subscriber_chans = HashMap::<String, HashMap<TypeId, PubSub<EventMessage>>>::new();
         for (name, supported_types) in &outputs {
@@ -99,7 +100,7 @@ impl<T: Daemon> DaemonActor<T> {
     /// - `Ok(negotiated_type)` - If the subscription is successful, return a single `TypeId` that this Node has
     /// agreed to produce.
     /// - `Err(reason)` - If the output conn_name could not be found, or if the type could not be negotiated.
-    fn handle_subscribe_to<Subscriber: Actor + Message<EventMessage>>(
+    pub fn handle_subscribe_to<Subscriber: Actor + Message<EventMessage>>(
         &mut self,
         conn_name: String,
         r: ActorRef<Subscriber>,
@@ -177,55 +178,67 @@ impl<T: Daemon> Message<()> for DaemonActor<T> {
         _: (),
         ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        let (results_tx, mut results_rx) = mpsc::channel(100);
+        let (result_tx, mut result_rx) = mpsc::channel(100);
         let (status_tx, mut status_rx) = mpsc::channel(100);
 
         // Create a context for the daemon to own
         let daemon_context = MuetlContext {
             current_subscribers: self.current_context.current_subscribers.clone(),
-            results: results_tx,
+            results: result_tx,
             status: status_tx,
         };
         let mut daemon = self.daemon.take().unwrap();
 
-        let mut fut = tokio::spawn(async move {
+        let fut = tokio::spawn(async move {
             daemon.run(&daemon_context).await;
             daemon
         });
 
         loop {
             select! {
-                Some(result) = results_rx.recv() => {
-                    match self.produce_output(result).await {
-                        Ok(()) => break,
-                         Err(reason) => println!("failed to produce events: {}", reason),
+                res = result_rx.recv() => {
+                    if let Some(result) = res {
+                        println!("Received result {:?}", result);
+                        match self.produce_output(result).await {
+                            Ok(()) => break,
+                             Err(reason) => println!("failed to produce events: {}", reason),
+                        }
+                    } else if status_rx.is_closed() {
+                        break;
                     }
-                }
-                Some(status) = status_rx.recv() => {
-                    let update = StatusUpdate{status: status, id: self.id};
-                    self.monitor_chan.publish(update).await;
-                }
-                join_result = &mut fut => {
-                    match join_result {
-                        Ok(daemon) => {
-                            println!("Run finished");
-                            // Replace the daemon
-                            self.daemon = Some(daemon);
-                            // Enqueue another iteration
-                            ctx.actor_ref().tell(()).await.unwrap();
-                        },
-                        // Don't enqueue another iteration
-                        Err(e) => {
-                            println!("Daemon task panicked: {:?}", e);
-                            // Send a failure message to the monitor
-                            self.monitor_chan.publish(StatusUpdate{id: self.id, status: Status::Failed(e.to_string())}).await;
-                            // Stop the current task
-                            ctx.stop();
-                        },
+                },
+                res = status_rx.recv() => {
+                    if let Some(status) = res {
+                        println!("Received status {:?}", status);
+                        let update = StatusUpdate{status: status, id: self.id};
+                        self.monitor_chan.publish(update).await;
+                    } else if result_rx.is_closed() {
+                        break;
                     }
-                    // Once the future returns, break
-                    break;
-                }
+                },
+            }
+        }
+
+        match fut.await {
+            Ok(daemon) => {
+                println!("Run finished");
+                // Replace the daemon
+                self.daemon = Some(daemon);
+                // Enqueue another iteration
+                ctx.actor_ref().tell(()).await.unwrap();
+            }
+            // Don't enqueue another iteration
+            Err(e) => {
+                println!("Daemon task panicked: {:?}", e);
+                // Send a failure message to the monitor
+                self.monitor_chan
+                    .publish(StatusUpdate {
+                        id: self.id,
+                        status: Status::Failed(e.to_string()),
+                    })
+                    .await;
+                // Stop the current task
+                ctx.stop();
             }
         }
     }

@@ -1,23 +1,37 @@
-use std::{any::TypeId, collections::HashMap, sync::Arc};
+use std::{any::TypeId, collections::HashMap, sync::Arc, time::Duration};
+
+use tokio::time::sleep;
 
 use crate::{
     messages::event::Event,
-    task_defs::{daemon::Daemon, HasOutputs, Output, TaskDef},
+    task_defs::{
+        daemon::Daemon, ConfigField, HasOutputs, Output, TaskConfig, TaskConfigTpl,
+        TaskConfigValue, TaskDef,
+    },
 };
 
 pub struct Ticker {
     t: u64,
+    period: Duration,
 }
 impl TaskDef for Ticker {
-    fn new() -> Self {
-        Ticker { t: 0 }
+    fn new(config: &TaskConfig) -> Result<Box<Self>, String> {
+        Ok(Box::new(Ticker {
+            t: 0,
+            period: Duration::from_millis(u64::try_from(config.get("period_ms").unwrap()).unwrap()),
+        }))
     }
+
     fn task_config_tpl(&self) -> Option<crate::task_defs::TaskConfigTpl> {
-        None
+        Some(TaskConfigTpl {
+            fields: vec![ConfigField::optional_with_default(
+                "period_ms",
+                TaskConfigValue::Uint(1000),
+            )],
+            disallow_unknown_fields: true,
+        })
     }
-    fn init(&mut self, config: crate::task_defs::TaskConfig) -> Result<(), String> {
-        Ok(())
-    }
+
     fn deinit(self) -> Result<(), String> {
         Ok(())
     }
@@ -39,7 +53,7 @@ impl Daemon for Ticker {
     async fn run(&mut self, ctx: &crate::task_defs::MuetlContext) -> () {
         ctx.results
             .send(Event::new(
-                "tick".to_string(),
+                format!("tick-{}", self.t),
                 "tick".to_string(),
                 HashMap::new(),
                 Arc::new(self.t),
@@ -47,5 +61,6 @@ impl Daemon for Ticker {
             .await
             .unwrap();
         self.t += 1;
+        sleep(self.period).await;
     }
 }
