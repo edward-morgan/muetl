@@ -1,6 +1,6 @@
 use crate::messages::{Status, StatusUpdate};
+use crate::runtime::util::new_id;
 use crate::task_defs::{MuetlContext, TaskResult};
-use crate::util::new_id;
 use kameo::actor::ActorRef;
 use kameo::message::{Context, Message};
 use kameo::Actor;

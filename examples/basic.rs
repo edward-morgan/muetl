@@ -1,9 +1,4 @@
-mod actors;
-mod daemons;
-
-mod messages;
-mod task_defs;
-mod util;
+use muetl::runtime::*;
 
 use std::{collections::HashMap, thread::sleep, time::Duration};
 

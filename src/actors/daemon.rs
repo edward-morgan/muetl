@@ -10,8 +10,8 @@ use tokio_stream::StreamExt;
 
 use crate::{
     messages::{event::Event, Status, StatusUpdate},
+    runtime::util::new_id,
     task_defs::{daemon::Daemon, MuetlContext},
-    util::new_id,
 };
 
 use super::EventMessage;
