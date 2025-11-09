@@ -1,6 +1,5 @@
 use std::{any::TypeId, collections::HashMap, sync::Arc};
 
-use futures::FutureExt;
 use kameo::{actor::ActorRef, error::Infallible, prelude::Message, Actor};
 use kameo_actors::pubsub::PubSub;
 use tokio::{

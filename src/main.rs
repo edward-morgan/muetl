@@ -7,7 +7,6 @@ mod util;
 
 use std::{collections::HashMap, thread::sleep, time::Duration};
 
-use futures::executor::LocalSpawner;
 use kameo::prelude::*;
 use kameo_actors::pubsub::PubSub;
 
