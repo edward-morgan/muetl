@@ -33,11 +33,11 @@ impl NegotiatedType {
                 let illegal_events: Vec<String> = events
                     .iter()
                     .filter_map(|ev| {
-                        if ev.get_data().type_id() != *tpe {
+                        if (&*ev.get_data()).type_id() != *tpe {
                             Some(format!(
                                 "[{}: {:?}]",
                                 ev.name.clone(),
-                                ev.get_data().downcast::<dyn Any>().type_id()
+                                ev.get_data().type_id()
                             ))
                         } else {
                             None
