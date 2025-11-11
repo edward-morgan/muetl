@@ -5,7 +5,7 @@ use tokio::time::sleep;
 use crate::{
     messages::event::Event,
     task_defs::{
-        daemon::Daemon, ConfigField, HasOutputs, Output, TaskConfig, TaskConfigTpl,
+        daemon::Daemon, ConfigField, HasOutputs, Output, OutputType, TaskConfig, TaskConfigTpl,
         TaskConfigValue, TaskDef,
     },
 };
@@ -42,9 +42,9 @@ impl Output<u64> for Ticker {
 }
 
 impl HasOutputs for Ticker {
-    fn get_outputs(&self) -> std::collections::HashMap<String, Vec<std::any::TypeId>> {
+    fn get_outputs(&self) -> HashMap<String, OutputType> {
         let mut hm = HashMap::new();
-        hm.insert("tick".to_string(), vec![TypeId::of::<u64>()]);
+        hm.insert("tick".to_string(), OutputType::singleton_of::<u64>());
         hm
     }
 }

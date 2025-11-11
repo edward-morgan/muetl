@@ -10,13 +10,13 @@ pub trait Daemon: HasOutputs + Send + Sync {
     fn validate_output(&self, events: &Vec<Event>) -> Result<(), String> {
         let outputs = self.get_outputs();
         for event in events {
-            if let Some(exp_types) = outputs.get(&event.conn_name) {
-                if !exp_types.contains(&event.get_data().type_id()) {
+            if let Some(exp_type) = outputs.get(&event.conn_name) {
+                if !exp_type.check_type(event.get_data().type_id()) {
                     return Err(
                         format!("output Event for conn named '{}' has invalid type {:?} (expected one of {:?})",
                             event.conn_name,
                             event.get_data().type_id(),
-                            exp_types));
+                            exp_type));
                 }
             }
         }

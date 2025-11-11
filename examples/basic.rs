@@ -1,6 +1,6 @@
-use muetl::runtime::*;
+use muetl::{actors::NegotiatedType, runtime::*, task_defs::HasOutputs};
 
-use std::{collections::HashMap, thread::sleep, time::Duration};
+use std::{any::TypeId, collections::HashMap, thread::sleep, time::Duration};
 
 use kameo::prelude::*;
 use kameo_actors::pubsub::PubSub;
@@ -20,8 +20,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ticker = Ticker::new(&cfg).unwrap();
 
+    // Negotiating outputs gets complex when you have subscribers
+    let mut ticker_negotiated_outputs = HashMap::new();
+    ticker_negotiated_outputs.insert(
+        "tick".to_string(),
+        NegotiatedType::Singleton(TypeId::of::<u64>()),
+    );
+
     let monitor_chan = PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed);
-    let ticker_daemon = DaemonActor::<Ticker>::new(Some(ticker), monitor_chan);
+    let ticker_daemon =
+        DaemonActor::<Ticker>::new(Some(ticker), monitor_chan, ticker_negotiated_outputs);
 
     let ticker_daemon_ref = DaemonActor::spawn(ticker_daemon);
 

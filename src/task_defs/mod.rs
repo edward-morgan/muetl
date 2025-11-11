@@ -4,11 +4,102 @@ pub mod sink;
 pub mod source;
 pub mod task;
 
-use std::{any::TypeId, collections::HashMap};
+use std::{
+    any::{Any, TypeId},
+    collections::HashMap,
+    fmt::Debug,
+};
 
 use tokio::sync::mpsc::{self, Sender};
 
 use crate::messages::{event::Event, Status};
+
+/// An OutputType represents the type of an output connection in a TaskDef.
+///
+/// The specific type may be a single type, a one-of sum type or an
+/// any-of product type.
+///
+/// OutputTypes are used when negotiating the types of subscribers to this
+/// TaskDef. In the simplest case (a Singleton), subscribers can only ask
+/// to subscribe to that one type. The TaskDef is responsible for producing
+/// Events with that single type.
+///
+/// For a Sum type, subscribers can ask for one of the types that are
+/// available; however, they must *all* agree on which type that is for
+/// the subscriptions to be valid. Like for Singleton OutputTypes, the
+/// TaskDef is responsible for producing only Events with the single
+/// 'negotiated' type, whatever that is at runtime.
+///
+/// For a Product type, subscribers can ask for any one of the available
+/// options, where multiple types may be produced from a single output.
+/// While the most flexible, this requires the TaskDef to produce an
+/// Event of *each* 'negotiated' type as output.
+pub enum OutputType {
+    /// The output may only be of this single type.
+    Singleton(TypeId),
+    /// The output may be exactly one of the types listed.
+    Sum(Vec<TypeId>),
+    /// The output may be any one of the types listed.
+    Product(Vec<TypeId>),
+}
+impl OutputType {
+    /// Check the given type against the OutputType, which differs
+    /// based on whether this is a sum or product type.
+    pub fn check_type(&self, against: TypeId) -> bool {
+        match self {
+            Self::Singleton(tpe) => *tpe == against,
+            Self::Sum(types) => types.contains(&against),
+            Self::Product(types) => types.contains(&against),
+        }
+    }
+
+    pub fn check_types(&self, against: Vec<TypeId>) -> bool {
+        if against.len() == 0 {
+            return false;
+        }
+
+        match self {
+            Self::Singleton(tpe) => against.iter().all(|&a| a == *tpe),
+            Self::Sum(types) => {
+                let to_match = against[0].type_id();
+                // Check that all types in against match, and that that single type
+                // exists in the sum type.
+                types.contains(&to_match) && against.iter().skip(1).all(|&a| a == to_match)
+            }
+            Self::Product(types) => against.iter().all(|a| types.contains(a)),
+        }
+    }
+
+    /// Construct a new OutputType that can only be a single type.
+    pub fn singleton(of: TypeId) -> Self {
+        Self::Singleton(of)
+    }
+
+    pub fn singleton_of<T: 'static>() -> Self {
+        Self::Singleton(TypeId::of::<T>())
+    }
+
+    /// Construct a new OutputType that can be a single type among a
+    /// set of choices.
+    pub fn one_of(choices: Vec<TypeId>) -> Self {
+        Self::Sum(choices)
+    }
+
+    /// Construct a new OutputType that can be any one of types in a
+    /// set of choices.
+    pub fn any_of(choices: Vec<TypeId>) -> Self {
+        Self::Product(choices)
+    }
+}
+impl Debug for OutputType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Singleton(tpe) => f.debug_set().entry(tpe).finish(),
+            Self::Product(types) => f.debug_set().entries(types).finish(),
+            Self::Sum(types) => f.debug_set().entries(types).finish(),
+        }
+    }
+}
 
 /// A TaskDef represents any process that is executed by muetl.
 pub trait TaskDef {
@@ -23,21 +114,21 @@ pub trait TaskDef {
 }
 
 pub trait HasOutputs: TaskDef {
-    fn get_outputs(&self) -> HashMap<String, Vec<TypeId>>;
+    fn get_outputs(&self) -> HashMap<String, OutputType>;
 
-    /// After the underlying event handling has returned a set of Events, validate that each one's
+    /// After the underlying event handling has returned a set of Events, validate that each ones'
     /// conn_name matches the data type. If any Events do not match the expected conn_name - type
     /// declared by the Node's implementation of Output<T>, then an error is returned.
     fn validate_output(&self, events: &Vec<Event>) -> Result<(), String> {
         let outputs = self.get_outputs();
         for event in events {
-            if let Some(exp_types) = outputs.get(&event.conn_name) {
-                if !exp_types.contains(&event.get_data().type_id()) {
+            if let Some(exp_type) = outputs.get(&event.conn_name) {
+                if !exp_type.check_type(event.get_data().type_id()) {
                     return Err(
                         format!("output Event for conn named '{}' has invalid type {:?} (expected one of {:?})",
                             event.conn_name,
                             event.get_data().type_id(),
-                            exp_types));
+                            exp_type));
                 }
             }
         }
@@ -80,7 +171,7 @@ pub struct MuetlContext {
 }
 
 pub trait HasInputs: TaskDef {
-    fn get_inputs(&self) -> HashMap<String, Vec<TypeId>>;
+    fn get_inputs(&self) -> HashMap<String, TypeId>;
 }
 
 /// Users should implement Input<Some Type> to declare that their Node or Sink is

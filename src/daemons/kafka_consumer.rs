@@ -6,8 +6,8 @@ use std::time::Duration;
 use crate::messages::event::Event;
 use crate::task_defs::daemon::Daemon;
 use crate::task_defs::{
-    ConfigField, HasOutputs, MuetlContext, Output, RegisteredType, TaskConfig, TaskConfigTpl,
-    TaskDef,
+    ConfigField, HasOutputs, MuetlContext, Output, OutputType, RegisteredType, TaskConfig,
+    TaskConfigTpl, TaskDef,
 };
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::message::OwnedMessage;
@@ -70,11 +70,11 @@ impl Output<OwnedMessage> for KafkaConsumer {
 }
 
 impl HasOutputs for KafkaConsumer {
-    fn get_outputs(&self) -> std::collections::HashMap<String, Vec<std::any::TypeId>> {
+    fn get_outputs(&self) -> HashMap<String, OutputType> {
         let mut hm = HashMap::new();
         hm.insert(
             "deserialized_message".to_string(),
-            vec![TypeId::of::<RegisteredType>()],
+            OutputType::singleton(TypeId::of::<RegisteredType>()),
         );
         hm
     }
