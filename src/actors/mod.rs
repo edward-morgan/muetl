@@ -13,6 +13,7 @@ use crate::{messages::event::Event, task_defs::OutputType};
 pub mod daemon;
 pub mod monitor;
 pub mod node;
+pub mod sink;
 
 /// The Message type that internal actors pass around.
 pub type EventMessage = Arc<Event>;
@@ -33,11 +34,12 @@ impl NegotiatedType {
                 let illegal_events: Vec<String> = events
                     .iter()
                     .filter_map(|ev| {
+                        // Extract the underlying type, otherwise we're getting the TypeId of the Arc
                         if (&*ev.get_data()).type_id() != *tpe {
                             Some(format!(
                                 "[{}: {:?}]",
                                 ev.name.clone(),
-                                ev.get_data().type_id()
+                                (&*ev.get_data()).type_id()
                             ))
                         } else {
                             None
@@ -63,10 +65,10 @@ impl NegotiatedType {
                 }
                 let mut present = HashMap::new();
                 for ev in events {
-                    if present.contains_key(&ev.get_data().type_id()) {
-                        return Err(format!("duplicate event for type {:?}; must have a single event for each of {:?}", ev.get_data().type_id(), types));
+                    if present.contains_key(&(&*ev.get_data()).type_id()) {
+                        return Err(format!("duplicate event for type {:?}; must have a single event for each of {:?}", (&*ev.get_data()).type_id(), types));
                     } else {
-                        present.insert(ev.get_data().type_id(), ());
+                        present.insert((&*ev.get_data()).type_id(), ());
                     }
                 }
                 Ok(())

@@ -1,7 +1,4 @@
-use std::{
-    future::Future,
-    sync::Arc,
-};
+use std::{future::Future, sync::Arc};
 
 use tokio::sync::mpsc;
 
@@ -22,7 +19,7 @@ pub trait Node: HasInputs + HasOutputs + Send + Sync {
     ) -> impl Future<Output = TaskResult> + Send;
 
     /// Wrapper around `handle_event_for_conn()` that performs runtime type checking against the types
-    /// specified by `get_outputes()`.
+    /// specified by `get_outputs()`.
     fn handle_event(
         &mut self,
         ctx: &MuetlContext,

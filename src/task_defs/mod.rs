@@ -166,7 +166,15 @@ pub struct MuetlContext {
     /// Note that `current_subscribers` may change between calls to a producer's run function
     /// as new Tasks subscribe or unsubscribe.
     pub current_subscribers: HashMap<String, Vec<TypeId>>,
+    /// The channel to send results back on, in the form of Events.
     pub results: Sender<Event>,
+    /// The channel to send statuses back on.
+    pub status: Sender<Status>,
+}
+
+// A MuetlSinkContext contains the context a Sink should use when running.
+pub struct MuetlSinkContext {
+    /// The channel to send statuses back on.
     pub status: Sender<Status>,
 }
 

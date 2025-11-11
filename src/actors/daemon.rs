@@ -11,13 +11,13 @@ use tokio_stream::StreamExt;
 use crate::{
     actors::{HasSubscriptions, NegotiatedType, Subscription},
     messages::{event::Event, Status, StatusUpdate},
-    runtime::util::new_id,
+    system::util::new_id,
     task_defs::{daemon::Daemon, MuetlContext, OutputType},
 };
 
 use super::EventMessage;
 
-type OwnedDaemon<T> = Option<Box<T>>;
+pub type OwnedDaemon<T> = Option<Box<T>>;
 
 pub struct DaemonActor<T: 'static>
 where
