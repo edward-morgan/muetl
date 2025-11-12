@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::Mutex,
-};
+use std::{collections::HashMap, sync::Mutex};
 
 use kameo::{prelude::Message, Actor};
 
@@ -9,7 +6,7 @@ use crate::messages::{RetrieveStatus, Status, StatusUpdate};
 
 #[derive(Actor)]
 pub struct Monitor {
-    statuses: Mutex<HashMap<u32, Status>>,
+    statuses: Mutex<HashMap<u64, Status>>,
 }
 
 impl Message<StatusUpdate> for Monitor {

@@ -12,12 +12,12 @@ pub enum Status {
 /// The message type that is sent to a Monitor instance to register a status update
 #[derive(Clone)]
 pub struct StatusUpdate {
-    pub id: u32,
+    pub id: u64,
     pub status: Status,
 }
 
 pub struct RetrieveStatus {
-    pub id: u32,
+    pub id: u64,
 }
 
 #[derive(Debug, Clone)]

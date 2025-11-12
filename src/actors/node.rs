@@ -23,7 +23,7 @@ pub struct NodeActor<T: 'static>
 where
     T: Node,
 {
-    id: u32,
+    id: u64,
     node: Box<T>,
     /// The inputs of the wrapped node, retrieved via its get_inputs() function.
     inputs: HashMap<String, TypeId>,

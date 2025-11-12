@@ -18,7 +18,7 @@ pub struct SinkActor<T: 'static>
 where
     T: Sink,
 {
-    id: u32,
+    id: u64,
     sink: OwnedSink<T>,
     monitor_chan: PubSub<StatusUpdate>,
     /// The mapping set by the system at runtime to tell this actor which
