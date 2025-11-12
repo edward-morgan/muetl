@@ -12,6 +12,12 @@ impl SinkInput<u64> for LogSink {
         println!("[LogSink] {}", input)
     }
 }
+impl SinkInput<String> for LogSink {
+    const conn_name: &'static str = "input";
+    async fn handle(&mut self, ctx: &crate::task_defs::MuetlSinkContext, input: &String) {
+        println!("[LogSink] {}", input)
+    }
+}
 
 impl HasInputs for LogSink {
     fn get_inputs(&self) -> std::collections::HashMap<String, std::any::TypeId> {
@@ -41,7 +47,7 @@ impl Sink for LogSink {
         async move {
             match conn_name.as_str() {
                 "input" => {
-                    self.handle(ctx, &ev.get_data().downcast::<u64>().unwrap())
+                    self.handle(ctx, &*ev.get_data().downcast::<u64>().unwrap())
                         .await
                 }
                 _ => println!("unknown incoming conn_name {}", conn_name),
