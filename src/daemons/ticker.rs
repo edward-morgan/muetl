@@ -32,7 +32,7 @@ impl TaskDef for Ticker {
         })
     }
 
-    fn deinit(self) -> Result<(), String> {
+    fn deinit(&mut self) -> Result<(), String> {
         Ok(())
     }
 }

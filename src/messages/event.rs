@@ -38,9 +38,3 @@ impl Event {
         self.data.clone()
     }
 }
-
-fn assert_send<T: Send>(t: T) {}
-fn two() {
-    let e = Event::new("".to_string(), "".to_string(), HashMap::new(), Arc::new(2));
-    assert_send(e);
-}

@@ -15,7 +15,7 @@ pub trait Sink: HasInputs + Send + Sync {
         ctx: &MuetlSinkContext,
         conn_name: &String,
         ev: Arc<Event>,
-    ) -> impl Future<Output = TaskResult> + Send;
+    ) -> impl Future<Output = ()> + Send;
 
     /// Wrapper around `handle_event_for_conn()` that performs runtime type checking against the types
     /// specified by `get_outputs()`.
@@ -24,7 +24,7 @@ pub trait Sink: HasInputs + Send + Sync {
         ctx: &MuetlSinkContext,
         conn_name: &String,
         ev: Arc<Event>,
-    ) -> impl std::future::Future<Output = TaskResult> + Send {
+    ) -> impl std::future::Future<Output = ()> + Send {
         async move { self.handle_event_for_conn(ctx, conn_name, ev.clone()).await }
     }
 }

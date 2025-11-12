@@ -37,18 +37,10 @@ impl<T: Daemon> DaemonActor<T> {
     pub fn new(
         daemon: OwnedDaemon<T>,
         monitor_chan: PubSub<StatusUpdate>,
-        negotiated_outputs: HashMap<String, NegotiatedType>,
+        // negotiated_outputs: HashMap<String, NegotiatedType>,
         sender_ids: HashMap<String, u64>,
+        subscriber_chans: HashMap<String, Subscription>,
     ) -> Self {
-        // let outputs = daemon.as_ref().unwrap().get_outputs();
-        let mut subscriber_chans = HashMap::<String, Subscription>::new();
-        for (name, tpe) in negotiated_outputs {
-            subscriber_chans.insert(
-                name.clone(),
-                Subscription::new(tpe, kameo_actors::DeliveryStrategy::Guaranteed),
-            );
-        }
-
         // Throwaway
         let (results_tx, _) = mpsc::channel(1);
         let (status_tx, _) = mpsc::channel(1);
@@ -56,8 +48,6 @@ impl<T: Daemon> DaemonActor<T> {
         DaemonActor {
             id: new_id(),
             daemon,
-            // outputs,
-            // negotiated_outputs,
             subscriber_chans,
             monitor_chan,
             current_context: MuetlContext {

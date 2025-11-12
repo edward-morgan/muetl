@@ -115,7 +115,7 @@ pub trait HasSubscriptions {
                         .chan
                         .publish(Arc::new(InternalEvent {
                             sender_id: sender_id,
-                            event: event,
+                            event: Arc::new(event),
                         }))
                         .await;
                     Ok(())

@@ -110,7 +110,9 @@ pub trait TaskDef {
         None
     }
     // fn init(&mut self, config: TaskConfig) -> Result<(), String>;
-    fn deinit(self) -> Result<(), String>;
+    fn deinit(&mut self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 pub trait HasOutputs: TaskDef {
@@ -182,17 +184,20 @@ pub trait HasInputs: TaskDef {
     fn get_inputs(&self) -> HashMap<String, TypeId>;
 }
 
-/// Users should implement Input<Some Type> to declare that their Node or Sink is
+/// Users should implement Input<Some Type> to declare that their Node is
 /// capable of processing that type of message on the given connection named
 /// conn_name.
 pub trait Input<T> {
     const conn_name: &'static str;
-    async fn handle(
-        &mut self,
-        ctx: &MuetlContext,
-        input: &T,
-        status: &mut mpsc::Sender<Status>,
-    ) -> TaskResult;
+    async fn handle(&mut self, ctx: &MuetlContext, input: &T);
+}
+
+/// Users should implement SinkInput<Some Type> to declare that their Sink is
+/// capable of processing that type of message on the given connection named
+/// conn_name.
+pub trait SinkInput<T> {
+    const conn_name: &'static str;
+    async fn handle(&mut self, ctx: &MuetlSinkContext, input: &T);
 }
 
 /// Users should implement Output<Some Type> to declare that their Daemon,

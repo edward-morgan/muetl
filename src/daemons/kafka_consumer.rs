@@ -56,7 +56,7 @@ impl TaskDef for KafkaConsumer {
         })
     }
 
-    fn deinit(self) -> Result<(), String> {
+    fn deinit(&mut self) -> Result<(), String> {
         Ok(())
     }
 }
