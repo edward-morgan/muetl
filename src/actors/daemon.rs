@@ -37,7 +37,6 @@ impl<T: Daemon> DaemonActor<T> {
     pub fn new(
         daemon: OwnedDaemon<T>,
         monitor_chan: PubSub<StatusUpdate>,
-        // negotiated_outputs: HashMap<String, NegotiatedType>,
         sender_ids: HashMap<String, u64>,
         subscriber_chans: HashMap<String, Subscription>,
     ) -> Self {

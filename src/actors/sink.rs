@@ -1,10 +1,14 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, future::Future, sync::Arc};
 
-use kameo::{prelude::Message, Actor};
-use kameo_actors::{broker::Broker, pubsub::PubSub};
+use kameo::{error::Infallible, prelude::Message, Actor, Reply};
+use kameo_actors::{
+    broker::Broker,
+    pubsub::{PubSub, Subscribe},
+};
 use tokio::sync::mpsc;
 
 use crate::{
+    actors::Subscription,
     messages::{event::Event, Status, StatusUpdate},
     runtime::event::InternalEvent,
     task_defs::{sink::Sink, MuetlSinkContext},
@@ -13,7 +17,7 @@ use crate::{
 
 pub type OwnedSink<T> = Option<Box<T>>;
 
-#[derive(Actor)]
+// #[derive(Actor)]
 pub struct SinkActor<T: 'static>
 where
     T: Sink,
@@ -24,6 +28,7 @@ where
     /// The mapping set by the system at runtime to tell this actor which
     /// input conn_name events with a given sender_id should go to.
     internal_event_routes: HashMap<u64, String>,
+    subscriptions: Vec<Subscription>,
 }
 
 impl<T: Sink> SinkActor<T> {
@@ -31,12 +36,14 @@ impl<T: Sink> SinkActor<T> {
         sink: OwnedSink<T>,
         monitor_chan: PubSub<StatusUpdate>,
         internal_event_routes: HashMap<u64, String>,
+        subscriptions: Vec<Subscription>,
     ) -> Self {
         SinkActor {
             id: new_id(),
             sink,
             monitor_chan,
             internal_event_routes,
+            subscriptions,
         }
     }
 
@@ -59,12 +66,11 @@ impl<T: Sink> Message<Arc<InternalEvent>> for SinkActor<T> {
         msg: Arc<InternalEvent>,
         ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        let r = ctx.actor_ref();
-        println!("Sink running");
         // Map the incoming event to the right input conn_name
         match self.get_conn_for_sender_id(msg.sender_id) {
             Ok(input_conn_name) => {
-                // TODO: ideally we don't have to do this.
+                // TODO: ideally we don't have to do this. OTOH, I don't like the incoming events to have
+                // the wrong conn_name associated with them...
                 // msg.event.conn_name = input_conn_name.clone();
                 let (status_tx, mut status_rx) = mpsc::channel(100);
                 let ctx = MuetlSinkContext { status: status_tx };
@@ -113,5 +119,30 @@ impl<T: Sink> Message<Arc<InternalEvent>> for SinkActor<T> {
                 println!("Runtime error: {}", e)
             }
         }
+    }
+}
+impl<T: Sink> Actor for SinkActor<T> {
+    type Args = Self;
+    type Error = String;
+    async fn on_start(
+        args: Self::Args,
+        actor_ref: kameo::prelude::ActorRef<Self>,
+    ) -> Result<Self, Self::Error> {
+        // Subscribe to each of the subscriptions we've been initialized with
+        for sub in &args.subscriptions {
+            // TODO: Implement error handling
+            match sub.chan_ref.tell(Subscribe(actor_ref.clone())).await {
+                Ok(_) => {}
+                Err(e) => {
+                    // return Err(e.err().unwrap_or(
+                    //     "an unknown error occurred while subscribing to upstream channel"
+                    //         .to_string(),
+                    // ))
+                    println!("Error from subscriber: {:?}", e);
+                    return Err(format!("failed to subscribe"));
+                }
+            }
+        }
+        Ok(args)
     }
 }

@@ -9,7 +9,9 @@ use std::{
 pub struct Event {
     /// The identifier of this event.
     pub name: String,
-    /// What input connection name this event is being produced to on the downstream task.
+    /// What output connection name this event is being produced to on the downstream task.
+    /// For TaskDefs that accept Events from upstream sources, conn_name will not be
+    /// meaningful, as it refers to a conn_name for an upstream TaskDef's output.
     pub conn_name: String,
     /// A key/value map of header metadata associated with this event.
     pub headers: HashMap<String, String>,
