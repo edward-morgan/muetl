@@ -5,10 +5,10 @@ use muetl::{
     task_defs::HasOutputs,
 };
 
-use std::{any::TypeId, collections::HashMap, thread::sleep, time::Duration};
+use std::{any::TypeId, collections::HashMap, sync::Arc, thread::sleep, time::Duration};
 
 use kameo::prelude::*;
-use kameo_actors::pubsub::PubSub;
+use kameo_actors::pubsub::{PubSub, Subscribe};
 
 use crate::{
     actors::daemon::DaemonActor,
@@ -30,16 +30,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let log_sink_ref = SinkActor::spawn(log_sink);
 
-    let mut tick_chan = PubSub::<EventMessage>::new(kameo_actors::DeliveryStrategy::Guaranteed);
-
-    tick_chan.subscribe(log_sink_ref);
+    let tick_chan = Arc::new(PubSub::<EventMessage>::spawn(PubSub::new(
+        kameo_actors::DeliveryStrategy::Guaranteed,
+    )));
+    tick_chan.tell(Subscribe(log_sink_ref)).await.unwrap();
 
     // Negotiating outputs gets complex when you have subscribers
     let mut ticker_negotiated_outputs = HashMap::new();
     ticker_negotiated_outputs.insert(
         "tick".to_string(),
         Subscription {
-            chan: tick_chan,
+            chan_ref: tick_chan.clone(),
             chan_type: NegotiatedType::Singleton(TypeId::of::<u64>()),
         },
     );

@@ -59,6 +59,7 @@ impl<T: Sink> Message<Arc<InternalEvent>> for SinkActor<T> {
         msg: Arc<InternalEvent>,
         ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
     ) -> Self::Reply {
+        let r = ctx.actor_ref();
         println!("Sink running");
         // Map the incoming event to the right input conn_name
         match self.get_conn_for_sender_id(msg.sender_id) {

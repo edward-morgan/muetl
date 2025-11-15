@@ -5,8 +5,12 @@ use std::{
     future::Future,
     sync::Arc,
 };
+use tokio::sync::mpsc::error::TrySendError;
 
-use kameo_actors::{pubsub::PubSub, DeliveryStrategy};
+use kameo_actors::{
+    pubsub::{PubSub, Publish, Subscribe},
+    DeliveryStrategy,
+};
 
 use crate::runtime::event::InternalEvent;
 use crate::{messages::event::Event, task_defs::OutputType};
@@ -79,15 +83,18 @@ impl NegotiatedType {
 }
 
 pub struct Subscription {
-    pub chan: PubSub<EventMessage>,
     pub chan_type: NegotiatedType,
+    pub chan_ref: Arc<ActorRef<PubSub<EventMessage>>>,
 }
 impl Subscription {
-    pub fn new(tpe: NegotiatedType, delivery_strategy: DeliveryStrategy) -> Self {
+    pub fn new(tpe: NegotiatedType, chan_ref: Arc<ActorRef<PubSub<EventMessage>>>) -> Self {
         Self {
-            chan: PubSub::new(delivery_strategy),
+            chan_ref,
             chan_type: tpe,
         }
+    }
+    pub async fn publish(&self, msg: EventMessage) -> Result<(), SendError<Publish<EventMessage>>> {
+        self.chan_ref.tell(Publish(msg)).await
     }
 }
 
@@ -112,12 +119,13 @@ pub trait HasSubscriptions {
             match subscription.chan_type.validate_types(vec![&event]) {
                 Ok(()) => {
                     subscription
-                        .chan
-                        .publish(Arc::new(InternalEvent {
+                        .chan_ref
+                        .tell(Publish(Arc::new(InternalEvent {
                             sender_id: sender_id,
                             event: Arc::new(event),
-                        }))
-                        .await;
+                        })))
+                        .await
+                        .unwrap(); // TODO: Handle these issues
                     Ok(())
                 }
                 e @ Err(_) => e,
