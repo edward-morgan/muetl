@@ -1,5 +1,5 @@
 use muetl::{
-    actors::{sink::SinkActor, EventMessage, NegotiatedType, Subscription},
+    runtime::{connection::Connection, sink_actor::SinkActor, EventMessage, NegotiatedType},
     sinks::log_sink::LogSink,
     system::*,
     task_defs::HasOutputs,
@@ -11,8 +11,8 @@ use kameo::prelude::*;
 use kameo_actors::pubsub::{PubSub, Subscribe};
 
 use crate::{
-    actors::daemon::DaemonActor,
     daemons::ticker::Ticker,
+    runtime::daemon_actor::DaemonActor,
     task_defs::{TaskConfigValue, TaskDef},
 };
 
@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut ticker_negotiated_outputs = HashMap::new();
     ticker_negotiated_outputs.insert(
         "tick".to_string(),
-        Subscription {
+        Connection {
             chan_ref: tick_chan.clone(),
             chan_type: NegotiatedType::Singleton(TypeId::of::<u64>()),
         },

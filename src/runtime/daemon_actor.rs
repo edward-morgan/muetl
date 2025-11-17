@@ -9,8 +9,8 @@ use tokio::{
 use tokio_stream::StreamExt;
 
 use crate::{
-    actors::{HasSubscriptions, NegotiatedType, Subscription},
     messages::{event::Event, Status, StatusUpdate},
+    runtime::{connection::Connection, HasSubscriptions, NegotiatedType},
     system::util::new_id,
     task_defs::{daemon::Daemon, MuetlContext, OutputType},
 };
@@ -26,7 +26,7 @@ where
     id: u64,
     daemon: OwnedDaemon<T>,
     /// For each output conn_name, keep a mapping of negotiated types to the PubSub channels results will be sent on.
-    subscriber_chans: HashMap<String, Subscription>,
+    subscriber_chans: HashMap<String, Connection>,
     monitor_chan: PubSub<StatusUpdate>,
     current_context: MuetlContext,
     /// A mapping of output conn_names to internal sender IDs.
@@ -38,7 +38,7 @@ impl<T: Daemon> DaemonActor<T> {
         daemon: OwnedDaemon<T>,
         monitor_chan: PubSub<StatusUpdate>,
         sender_ids: HashMap<String, u64>,
-        subscriber_chans: HashMap<String, Subscription>,
+        subscriber_chans: HashMap<String, Connection>,
     ) -> Self {
         // Throwaway
         let (results_tx, _) = mpsc::channel(1);
@@ -64,7 +64,7 @@ impl<T: Daemon> HasSubscriptions for DaemonActor<T> {
         self.daemon.as_ref().unwrap().get_outputs()
     }
 
-    fn get_subscriber_channel(&mut self, conn_name: &String) -> Result<&mut Subscription, String> {
+    fn get_subscriber_channel(&mut self, conn_name: &String) -> Result<&mut Connection, String> {
         if let Some(ch) = self.subscriber_chans.get_mut(conn_name) {
             Ok(ch)
         } else {

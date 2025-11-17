@@ -7,8 +7,8 @@ use kameo_actors::{
 };
 use tokio::sync::mpsc;
 
+use crate::runtime::connection::Connection;
 use crate::{
-    actors::Subscription,
     messages::{event::Event, Status, StatusUpdate},
     runtime::event::InternalEvent,
     task_defs::{sink::Sink, MuetlSinkContext},
@@ -28,7 +28,7 @@ where
     /// The mapping set by the system at runtime to tell this actor which
     /// input conn_name events with a given sender_id should go to.
     internal_event_routes: HashMap<u64, String>,
-    subscriptions: Vec<Subscription>,
+    subscriptions: Vec<Connection>,
 }
 
 impl<T: Sink> SinkActor<T> {
@@ -36,7 +36,7 @@ impl<T: Sink> SinkActor<T> {
         sink: OwnedSink<T>,
         monitor_chan: PubSub<StatusUpdate>,
         internal_event_routes: HashMap<u64, String>,
-        subscriptions: Vec<Subscription>,
+        subscriptions: Vec<Connection>,
     ) -> Self {
         SinkActor {
             id: new_id(),
@@ -134,10 +134,6 @@ impl<T: Sink> Actor for SinkActor<T> {
             match sub.chan_ref.tell(Subscribe(actor_ref.clone())).await {
                 Ok(_) => {}
                 Err(e) => {
-                    // return Err(e.err().unwrap_or(
-                    //     "an unknown error occurred while subscribing to upstream channel"
-                    //         .to_string(),
-                    // ))
                     println!("Error from subscriber: {:?}", e);
                     return Err(format!("failed to subscribe"));
                 }

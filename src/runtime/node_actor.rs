@@ -1,5 +1,5 @@
-use crate::actors::Subscription;
 use crate::messages::{Status, StatusUpdate};
+use crate::runtime::connection::Connection;
 use crate::task_defs::{MuetlContext, OutputType, TaskResult};
 use crate::util::new_id;
 use kameo::actor::ActorRef;
@@ -30,7 +30,7 @@ where
     /// The outputs of the wrapped node, retrieved via its get_outputs() function.
     outputs: HashMap<String, OutputType>,
     /// For each output conn_name, keep a mapping of negotiated types to the PubSub channels results will be sent on.
-    subscriber_chans: HashMap<String, Subscription>,
+    subscriber_chans: HashMap<String, Connection>,
     /// A mapping of senders to this node, from source (output) conn_name to input conn_name
     input_conn_name_mapping: HashMap<String, String>,
     monitor_chan: PubSub<StatusUpdate>,
@@ -66,7 +66,7 @@ impl<T: Node> NodeActor<T> {
     fn new(node: Box<T>, monitor_chan: PubSub<StatusUpdate>) -> NodeActor<T> {
         let inputs = node.get_inputs();
         let outputs = node.get_outputs();
-        let subscriber_chans = HashMap::<String, Subscription>::new();
+        let subscriber_chans = HashMap::<String, Connection>::new();
 
         let (results_tx, _) = mpsc::channel(1);
         let (status_tx, _) = mpsc::channel(1);
