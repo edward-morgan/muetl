@@ -48,14 +48,14 @@ type ChannelImpl = Arc<ActorRef<PubSub<EventMessage>>>;
 /// otherwise affect the PubSub, when really they *only* need the ability to publish
 /// to it.
 pub struct Connection {
-    pub chan_type: NegotiatedType,
+    pub chan_type: Arc<NegotiatedType>,
     pub chan_ref: ChannelImpl,
 }
 impl Connection {
     pub fn new(tpe: NegotiatedType, chan_ref: Arc<ActorRef<PubSub<EventMessage>>>) -> Self {
         Self {
-            chan_ref,
-            chan_type: tpe,
+            chan_ref: chan_ref.clone(),
+            chan_type: Arc::new(tpe),
         }
     }
     pub async fn publish(&self, msg: EventMessage) -> Result<(), SendError<Publish<EventMessage>>> {
@@ -63,37 +63,52 @@ impl Connection {
     }
 }
 
+/// The side of a `Connection` that is provided to consumer Tasks (Sinks and Nodes).
 pub struct IncomingConnection {
-    pub chan_type: NegotiatedType,
+    pub chan_type: Arc<NegotiatedType>,
     pub chan_ref: ChannelImpl,
-    receiver_conn_name: String,
+    pub receiver_conn_name: String, // Descriptive only
     sender_id: u64,
 }
 impl IncomingConnection {
-    pub fn from(c: Connection, sender_id: u64, receiver_conn_name: String) -> Self {
+    pub fn from(c: &Connection, sender_id: u64, receiver_conn_name: String) -> Self {
         Self {
-            chan_ref: c.chan_ref,
-            chan_type: c.chan_type,
+            chan_ref: c.chan_ref.clone(),
+            chan_type: c.chan_type.clone(),
             receiver_conn_name,
             sender_id,
         }
     }
+
+    // TODO: implement pub fn subscribe_to(&self, ...)
 }
 
+/// The side of a `Connection` that is provided to producer Tasks (Daemons, Sources, and Nodes).
 pub struct OutgoingConnection {
-    pub chan_type: NegotiatedType,
+    pub chan_type: Arc<NegotiatedType>,
     pub chan_ref: ChannelImpl,
-    sender_conn_name: String,
+    pub sender_conn_name: String, // Descriptive only
     sender_id: u64,
 }
 
 impl OutgoingConnection {
-    pub fn from(c: Connection, sender_id: u64, sender_conn_name: String) -> Self {
+    pub fn from(c: &Connection, sender_id: u64, sender_conn_name: String) -> Self {
         Self {
-            chan_ref: c.chan_ref,
-            chan_type: c.chan_type,
+            chan_ref: c.chan_ref.clone(),
+            chan_type: c.chan_type.clone(),
             sender_conn_name,
             sender_id,
         }
+    }
+
+    // TODO: return a result type
+    pub async fn publish_to(&self, ev: Arc<Event>) {
+        self.chan_ref
+            .tell(Publish(Arc::new(InternalEvent {
+                sender_id: self.sender_id,
+                event: ev.clone(),
+            })))
+            .await
+            .unwrap();
     }
 }
