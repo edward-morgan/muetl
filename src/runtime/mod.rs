@@ -8,19 +8,14 @@ pub mod sink_actor;
 use kameo::prelude::*;
 use std::{
     any::{Any, TypeId},
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     future::Future,
     sync::Arc,
 };
-use tokio::sync::mpsc::error::TrySendError;
 
-use kameo_actors::{
-    pubsub::{PubSub, Publish, Subscribe},
-    DeliveryStrategy,
-};
 
 use crate::runtime::{
-    connection::{Connection, OutgoingConnection, OutgoingConnections},
+    connection::OutgoingConnections,
     event::InternalEvent,
 };
 use crate::{messages::event::Event, task_defs::OutputType};

@@ -10,7 +10,7 @@ use std::{
     fmt::Debug,
 };
 
-use tokio::sync::mpsc::{self, Sender};
+use tokio::sync::mpsc::Sender;
 
 use crate::messages::{event::Event, Status};
 

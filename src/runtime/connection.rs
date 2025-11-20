@@ -1,21 +1,14 @@
 use kameo::prelude::*;
 use std::{
-    any::{Any, TypeId},
-    collections::{HashMap, HashSet},
-    future::Future,
-    os::unix::net::Incoming,
+    collections::HashMap,
     sync::Arc,
 };
-use tokio::sync::mpsc::error::TrySendError;
 
-use kameo_actors::{
-    pubsub::{PubSub, Publish, Subscribe},
-    DeliveryStrategy,
-};
+use kameo_actors::pubsub::{PubSub, Publish, Subscribe};
 
 use crate::{
     messages::event::Event,
-    task_defs::{OutputType, TaskDef},
+    task_defs::TaskDef,
 };
 use crate::{
     runtime::{event::InternalEvent, EventMessage, NegotiatedType},
@@ -146,8 +139,6 @@ impl IncomingConnection {
             receiver_conn_name: c.receiver_conn_name.clone(),
         }
     }
-
-    // TODO: implement pub fn subscribe_to(&self, ...)
 }
 
 pub struct OutgoingConnections {

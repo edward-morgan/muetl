@@ -1,4 +1,4 @@
-use std::{any::TypeId, collections::HashMap, ops::Index, sync::Arc};
+use std::collections::HashMap;
 
 use kameo::{actor::ActorRef, error::Infallible, prelude::Message, Actor};
 use kameo_actors::pubsub::{PubSub, Publish};
@@ -9,16 +9,15 @@ use tokio::{
 use tokio_stream::StreamExt;
 
 use crate::{
-    messages::{event::Event, Status, StatusUpdate},
+    messages::{Status, StatusUpdate},
     runtime::{
-        connection::{Connection, OutgoingConnections},
-        HasSubscriptions, NegotiatedType,
+        connection::OutgoingConnections,
+        HasSubscriptions,
     },
     system::util::new_id,
     task_defs::{daemon::Daemon, MuetlContext, OutputType},
 };
 
-use super::EventMessage;
 
 pub type OwnedDaemon<T> = Option<Box<T>>;
 
@@ -28,12 +27,9 @@ where
 {
     id: u64,
     daemon: OwnedDaemon<T>,
-    /// For each output conn_name, keep a mapping of negotiated types to the PubSub channels results will be sent on.
-    // subscriber_chans: HashMap<String, Connection>,
     monitor_chan: ActorRef<PubSub<StatusUpdate>>,
     current_context: MuetlContext,
     /// A mapping of output conn_names to internal sender IDs.
-    // sender_ids: HashMap<String, u64>,
     outgoing_connections: OutgoingConnections,
 }
 
@@ -41,8 +37,6 @@ impl<T: Daemon> DaemonActor<T> {
     pub fn new(
         daemon: OwnedDaemon<T>,
         monitor_chan: ActorRef<PubSub<StatusUpdate>>,
-        // sender_ids: HashMap<String, u64>,
-        // subscriber_chans: HashMap<String, Connection>,
         outgoing_connections: OutgoingConnections,
     ) -> Self {
         // Throwaway
@@ -52,14 +46,12 @@ impl<T: Daemon> DaemonActor<T> {
         DaemonActor {
             id: new_id(),
             daemon,
-            // subscriber_chans,
             monitor_chan,
             current_context: MuetlContext {
                 current_subscribers: HashMap::new(),
                 results: results_tx,
                 status: status_tx,
             },
-            // sender_ids,
             outgoing_connections,
         }
     }
@@ -73,50 +65,6 @@ impl<T: Daemon> HasSubscriptions for DaemonActor<T> {
     fn get_outgoing_connections(&self) -> &OutgoingConnections {
         &self.outgoing_connections
     }
-
-    // fn get_subscriber_channel(&mut self, conn_name: &String) -> Result<&mut Connection, String> {
-    //     if let Some(ch) = self.subscriber_chans.get_mut(conn_name) {
-    //         Ok(ch)
-    //     } else {
-    //         Err(format!(
-    //             "cannot find subscriber for conn_name {}",
-    //             conn_name
-    //         ))
-    //     }
-    // }
-
-    // fn get_sender_id_for(&self, conn_name: &String) -> Result<u64, String> {
-    //     if let Some(id) = self.sender_ids.get(conn_name) {
-    //         Ok(*id)
-    //     } else {
-    //         Err(format!("cannot find sender_id for conn_name {}", conn_name))
-    //     }
-    // }
-
-    // /// Update the current MuetlContext with the given TypeId for the given output conn_name.
-    // /// This updates the context that is passed to the wrapped node and should be called
-    // /// whenever a new subscription request is validated against this Node.
-    // fn add_subscriber(&mut self, conn_name: String, tpe: TypeId) {
-    //     // Allow panics here because the input should have already been validated.
-    //     let subs = self
-    //         .current_context
-    //         .current_subscribers
-    //         .get_mut(&conn_name)
-    //         .unwrap();
-
-    // //     if !subs.contains(&tpe) {
-    // //         subs.push(tpe);
-    // //     }
-    // // }
-    // fn remove_subscriber(&mut self, conn_name: String, tpe: TypeId) {
-    //     if let Some(subs_for_conn) = self.current_context.current_subscribers.get_mut(&conn_name) {
-    //         for i in 0..subs_for_conn.len() {
-    //             if tpe == subs_for_conn[i] {
-    //                 subs_for_conn.remove(i);
-    //             }
-    //         }
-    //     }
-    // }
 }
 
 impl<T: Daemon> Message<()> for DaemonActor<T> {

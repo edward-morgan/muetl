@@ -1,11 +1,9 @@
 use std::{future::Future, sync::Arc};
 
-use tokio::sync::mpsc;
 
-use crate::messages::{event::Event, Status};
-use crate::task_defs::TaskResult;
+use crate::messages::event::Event;
 
-use super::{HasInputs, MuetlContext, MuetlSinkContext};
+use super::{HasInputs, MuetlSinkContext};
 
 pub trait Sink: HasInputs + Send + Sync {
     /// Handle an Event sent to conn_name. The handler should disregard the conn_name

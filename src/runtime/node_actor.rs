@@ -1,8 +1,7 @@
 use crate::messages::{Status, StatusUpdate};
 use crate::runtime::connection::Connection;
-use crate::task_defs::{MuetlContext, OutputType, TaskResult};
+use crate::task_defs::{MuetlContext, OutputType};
 use crate::util::new_id;
-use kameo::actor::ActorRef;
 use kameo::message::{Context, Message};
 use kameo::Actor;
 use kameo_actors::pubsub::PubSub;
@@ -12,9 +11,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::messages::event::Event;
-use crate::task_defs::{node::Node, Input};
+use crate::task_defs::node::Node;
 
-use super::EventMessage;
 
 // TODO: Node is unfinished.
 

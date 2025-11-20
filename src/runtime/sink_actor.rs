@@ -1,15 +1,12 @@
-use std::{collections::HashMap, future::Future, sync::Arc};
+use std::sync::Arc;
 
-use kameo::{actor::ActorRef, error::Infallible, prelude::Message, Actor, Reply};
-use kameo_actors::{
-    broker::Broker,
-    pubsub::{PubSub, Publish, Subscribe},
-};
+use kameo::{actor::ActorRef, prelude::Message, Actor};
+use kameo_actors::pubsub::{PubSub, Publish};
 use tokio::sync::mpsc;
 
-use crate::runtime::connection::{Connection, IncomingConnection, IncomingConnections};
+use crate::runtime::connection::IncomingConnections;
 use crate::{
-    messages::{event::Event, Status, StatusUpdate},
+    messages::{Status, StatusUpdate},
     runtime::event::InternalEvent,
     task_defs::{sink::Sink, MuetlSinkContext},
     util::new_id,
@@ -27,8 +24,6 @@ where
     monitor_chan: ActorRef<PubSub<StatusUpdate>>,
     /// The mapping set by the system at runtime to tell this actor which
     /// input conn_name events with a given sender_id should go to.
-    // internal_event_routes: HashMap<u64, String>,
-    // subscriptions: Vec<IncomingConnection>,
     subscriptions: IncomingConnections,
 }
 
