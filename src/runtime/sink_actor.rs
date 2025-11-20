@@ -1,13 +1,13 @@
 use std::{collections::HashMap, future::Future, sync::Arc};
 
-use kameo::{error::Infallible, prelude::Message, Actor, Reply};
+use kameo::{actor::ActorRef, error::Infallible, prelude::Message, Actor, Reply};
 use kameo_actors::{
     broker::Broker,
-    pubsub::{PubSub, Subscribe},
+    pubsub::{PubSub, Publish, Subscribe},
 };
 use tokio::sync::mpsc;
 
-use crate::runtime::connection::Connection;
+use crate::runtime::connection::{Connection, IncomingConnection, IncomingConnections};
 use crate::{
     messages::{event::Event, Status, StatusUpdate},
     runtime::event::InternalEvent,
@@ -24,39 +24,40 @@ where
 {
     id: u64,
     sink: OwnedSink<T>,
-    monitor_chan: PubSub<StatusUpdate>,
+    monitor_chan: ActorRef<PubSub<StatusUpdate>>,
     /// The mapping set by the system at runtime to tell this actor which
     /// input conn_name events with a given sender_id should go to.
-    internal_event_routes: HashMap<u64, String>,
-    subscriptions: Vec<Connection>,
+    // internal_event_routes: HashMap<u64, String>,
+    // subscriptions: Vec<IncomingConnection>,
+    subscriptions: IncomingConnections,
 }
 
 impl<T: Sink> SinkActor<T> {
     pub fn new(
         sink: OwnedSink<T>,
-        monitor_chan: PubSub<StatusUpdate>,
-        internal_event_routes: HashMap<u64, String>,
-        subscriptions: Vec<Connection>,
+        monitor_chan: ActorRef<PubSub<StatusUpdate>>,
+        // internal_event_routes: HashMap<u64, String>,
+        subscriptions: IncomingConnections,
     ) -> Self {
         SinkActor {
             id: new_id(),
             sink,
             monitor_chan,
-            internal_event_routes,
+            // internal_event_routes,
             subscriptions,
         }
     }
 
-    fn get_conn_for_sender_id(&self, sender_id: u64) -> Result<String, String> {
-        if let Some(conn_name) = self.internal_event_routes.get(&sender_id) {
-            Ok(conn_name.clone())
-        } else {
-            Err(format!(
-                "cannot find input conn_name for sender_id {}",
-                sender_id
-            ))
-        }
-    }
+    // fn get_conn_for_sender_id(&self, sender_id: u64) -> Result<String, String> {
+    //     if let Some(conn_name) = self.internal_event_routes.get(&sender_id) {
+    //         Ok(conn_name.clone())
+    //     } else {
+    //         Err(format!(
+    //             "cannot find input conn_name for sender_id {}",
+    //             sender_id
+    //         ))
+    //     }
+    // }
 }
 
 impl<T: Sink> Message<Arc<InternalEvent>> for SinkActor<T> {
@@ -67,7 +68,7 @@ impl<T: Sink> Message<Arc<InternalEvent>> for SinkActor<T> {
         ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
     ) -> Self::Reply {
         // Map the incoming event to the right input conn_name
-        match self.get_conn_for_sender_id(msg.sender_id) {
+        match self.subscriptions.conn_name_for(msg.clone()) {
             Ok(input_conn_name) => {
                 // TODO: ideally we don't have to do this. OTOH, I don't like the incoming events to have
                 // the wrong conn_name associated with them...
@@ -90,7 +91,7 @@ impl<T: Sink> Message<Arc<InternalEvent>> for SinkActor<T> {
                             if let Some(status) = res {
                                 println!("Received status {:?}", status);
                                 let update = StatusUpdate{status: status, id: self.id};
-                                self.monitor_chan.publish(update).await;
+                                self.monitor_chan.tell(Publish(update)).await.unwrap();
                             } else {
                                 break;
                             }
@@ -107,11 +108,12 @@ impl<T: Sink> Message<Arc<InternalEvent>> for SinkActor<T> {
                         println!("Sink task panicked: {:?}", e);
                         // Send a failure message to the monitor
                         self.monitor_chan
-                            .publish(StatusUpdate {
+                            .tell(Publish(StatusUpdate {
                                 id: self.id,
                                 status: Status::Failed(e.to_string()),
-                            })
-                            .await;
+                            }))
+                            .await
+                            .unwrap()
                     }
                 }
             }
@@ -129,16 +131,9 @@ impl<T: Sink> Actor for SinkActor<T> {
         actor_ref: kameo::prelude::ActorRef<Self>,
     ) -> Result<Self, Self::Error> {
         // Subscribe to each of the subscriptions we've been initialized with
-        for sub in &args.subscriptions {
-            // TODO: Implement error handling
-            match sub.chan_ref.tell(Subscribe(actor_ref.clone())).await {
-                Ok(_) => {}
-                Err(e) => {
-                    println!("Error from subscriber: {:?}", e);
-                    return Err(format!("failed to subscribe"));
-                }
-            }
+        match args.subscriptions.subscribe_to_all(actor_ref).await {
+            Ok(()) => Ok(args),
+            Err(e) => Err(e),
         }
-        Ok(args)
     }
 }
