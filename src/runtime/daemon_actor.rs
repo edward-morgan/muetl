@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use kameo::{actor::ActorRef, error::Infallible, prelude::Message, Actor};
 use kameo_actors::pubsub::{PubSub, Publish};
@@ -10,14 +10,10 @@ use tokio_stream::StreamExt;
 
 use crate::{
     messages::{Status, StatusUpdate},
-    runtime::{
-        connection::OutgoingConnections,
-        HasSubscriptions,
-    },
+    runtime::{connection::OutgoingConnections, HasSubscriptions},
     system::util::new_id,
     task_defs::{daemon::Daemon, MuetlContext, OutputType},
 };
-
 
 pub type OwnedDaemon<T> = Option<Box<T>>;
 
@@ -106,8 +102,15 @@ impl<T: Daemon> Message<()> for DaemonActor<T> {
                 res = status_rx.recv() => {
                     if let Some(status) = res {
                         println!("Received status {:?}", status);
-                        let update = StatusUpdate{status: status, id: self.id};
+                        let update = StatusUpdate{status: status.clone(), id: self.id};
                         self.monitor_chan.tell(Publish(update)).await.unwrap();
+                        match &status {
+                            Status::Finished => {
+                                println!("Daemon is finished; exiting...");
+                                ctx.stop();
+                            }
+                            _ => {},
+                        }
                     } else if result_rx.is_closed() {
                         break;
                     }

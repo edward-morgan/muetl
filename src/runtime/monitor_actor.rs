@@ -6,7 +6,7 @@ use crate::messages::{RetrieveStatus, Status, StatusUpdate};
 
 #[derive(Actor)]
 pub struct Monitor {
-    statuses: Mutex<HashMap<u64, Status>>,
+    statuses: Mutex<HashMap<u64, Vec<Status>>>,
 }
 
 impl Message<StatusUpdate> for Monitor {
@@ -14,9 +14,16 @@ impl Message<StatusUpdate> for Monitor {
     async fn handle(
         &mut self,
         msg: StatusUpdate,
-        ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
+        _: &mut kameo::prelude::Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        self.statuses.lock().unwrap().insert(msg.id, msg.status);
+        if let Some(statuses) = self.statuses.lock().unwrap().get_mut(&msg.id) {
+            statuses.push(msg.status);
+        } else {
+            self.statuses
+                .lock()
+                .unwrap()
+                .insert(msg.id, vec![msg.status]);
+        }
     }
 }
 
@@ -25,12 +32,15 @@ impl Message<RetrieveStatus> for Monitor {
     async fn handle(
         &mut self,
         msg: RetrieveStatus,
-        ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
+        _: &mut kameo::prelude::Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        self.statuses
-            .lock()
-            .unwrap()
-            .get(&msg.id)
-            .map(|s| s.clone())
+        if let Some(statuses) = self.statuses.lock().unwrap().get_mut(&msg.id) {
+            match statuses.last() {
+                Some(l) => Some(l.clone()),
+                None => None,
+            }
+        } else {
+            None
+        }
     }
 }

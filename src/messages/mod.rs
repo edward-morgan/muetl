@@ -25,3 +25,10 @@ pub enum Metric {
     Gauge(f64),
     Counter(u32),
 }
+
+#[derive(Debug, Clone)]
+pub enum SystemEvent {
+    /// Inform the task that it should shut down immediately. This is commonly sent to stop downstream
+    /// Tasks for a pipeline that is driven by an upstream Source or Daemon that has stopped.
+    Shutdown,
+}

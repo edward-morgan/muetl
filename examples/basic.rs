@@ -38,8 +38,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let log_sink_ref = SinkActor::spawn(log_sink);
 
+    // TODO: Process config against config templates to get default values
     let mut cfg = HashMap::<String, TaskConfigValue>::new();
-    cfg.insert("period_ms".to_string(), TaskConfigValue::Uint(2000));
+    cfg.insert("period_ms".to_string(), TaskConfigValue::Uint(500));
+    cfg.insert("iterations".to_string(), TaskConfigValue::Uint(10));
 
     let ticker = Ticker::new(&cfg).unwrap();
     let ticker_daemon = DaemonActor::<Ticker>::new(

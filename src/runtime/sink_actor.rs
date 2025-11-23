@@ -4,6 +4,7 @@ use kameo::{actor::ActorRef, prelude::Message, Actor};
 use kameo_actors::pubsub::{PubSub, Publish};
 use tokio::sync::mpsc;
 
+use crate::messages::SystemEvent;
 use crate::runtime::connection::IncomingConnections;
 use crate::{
     messages::{Status, StatusUpdate},
@@ -31,28 +32,27 @@ impl<T: Sink> SinkActor<T> {
     pub fn new(
         sink: OwnedSink<T>,
         monitor_chan: ActorRef<PubSub<StatusUpdate>>,
-        // internal_event_routes: HashMap<u64, String>,
         subscriptions: IncomingConnections,
     ) -> Self {
         SinkActor {
             id: new_id(),
             sink,
             monitor_chan,
-            // internal_event_routes,
             subscriptions,
         }
     }
+}
 
-    // fn get_conn_for_sender_id(&self, sender_id: u64) -> Result<String, String> {
-    //     if let Some(conn_name) = self.internal_event_routes.get(&sender_id) {
-    //         Ok(conn_name.clone())
-    //     } else {
-    //         Err(format!(
-    //             "cannot find input conn_name for sender_id {}",
-    //             sender_id
-    //         ))
-    //     }
-    // }
+impl<T: Sink> Message<Arc<SystemEvent>> for SinkActor<T> {
+    type Reply = ();
+    async fn handle(
+        &mut self,
+        msg: Arc<SystemEvent>,
+        ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        println!("SinkActor {} received shutdown signal", self.id);
+        ctx.stop();
+    }
 }
 
 impl<T: Sink> Message<Arc<InternalEvent>> for SinkActor<T> {
