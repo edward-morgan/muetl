@@ -11,8 +11,3 @@ pub struct InternalEvent {
     pub sender_id: u64,
     pub event: Arc<Event>,
 }
-
-// TODOs:
-// 1. InternalEvent needs to be published by anything that has outputs, NOT Event. This will make the Sink work as expected.
-// 2. Runtime needs to publish sender IDs
-// 3. Test with a mock Sink

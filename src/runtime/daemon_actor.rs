@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, rc::Rc, sync::Arc};
 
 use kameo::{actor::ActorRef, error::Infallible, prelude::Message, Actor};
 use kameo_actors::pubsub::{PubSub, Publish};
@@ -10,7 +10,7 @@ use tokio_stream::StreamExt;
 
 use crate::{
     messages::{Status, StatusUpdate},
-    runtime::{connection::OutgoingConnections, HasSubscriptions},
+    runtime::connection::OutgoingConnections,
     system::util::new_id,
     task_defs::{daemon::Daemon, MuetlContext, OutputType},
 };
@@ -53,16 +53,6 @@ impl<T: Daemon> DaemonActor<T> {
     }
 }
 
-impl<T: Daemon> HasSubscriptions for DaemonActor<T> {
-    fn get_outputs(&mut self) -> HashMap<String, OutputType> {
-        self.daemon.as_ref().unwrap().get_outputs()
-    }
-
-    fn get_outgoing_connections(&self) -> &OutgoingConnections {
-        &self.outgoing_connections
-    }
-}
-
 impl<T: Daemon> Message<()> for DaemonActor<T> {
     type Reply = ();
     async fn handle(
@@ -91,7 +81,7 @@ impl<T: Daemon> Message<()> for DaemonActor<T> {
                 res = result_rx.recv() => {
                     if let Some(result) = res {
                         println!("Received result {:?}", result);
-                        match self.produce_output(result).await {
+                        match self.outgoing_connections.publish_to(Arc::new(result)).await {
                             Ok(()) => break,
                              Err(reason) => println!("failed to produce events: {}", reason),
                         }

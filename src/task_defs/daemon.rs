@@ -1,9 +1,12 @@
 use std::any::Any;
 
+use async_trait::async_trait;
+
 use crate::messages::event::Event;
 use crate::task_defs::*;
 
-pub trait Daemon: HasOutputs + Send + Sync {
+#[async_trait]
+pub trait Daemon: TaskDef + HasOutputs + Send + Sync {
     /// After the underlying event handling has returned a set of Events, validate that each one's
     /// conn_name matches the data type. If any Events do not match the expected conn_name - type
     /// declared by the Node's implementation of Output<T>, then an error is returned.
@@ -23,5 +26,5 @@ pub trait Daemon: HasOutputs + Send + Sync {
         Ok(())
     }
 
-    fn run(&mut self, ctx: &MuetlContext) -> impl std::future::Future<Output = ()> + Send;
+    async fn run(&mut self, ctx: &MuetlContext);
 }

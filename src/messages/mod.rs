@@ -26,6 +26,7 @@ pub enum Metric {
     Counter(u32),
 }
 
+/// SystemEvents are internal messages sent by the Muetl runtime to inform actors of changes they should make to their state.
 #[derive(Debug, Clone)]
 pub enum SystemEvent {
     /// Inform the task that it should shut down immediately. This is commonly sent to stop downstream

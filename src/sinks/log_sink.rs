@@ -1,9 +1,19 @@
 use std::{any::TypeId, collections::HashMap, future::Future};
 
+use async_trait::async_trait;
 
-use crate::task_defs::{sink::Sink, HasInputs, Input, SinkInput, TaskDef};
+use crate::{
+    runtime::connection::{IncomingConnections, OutgoingConnections},
+    task_defs::{sink::Sink, HasInputs, Input, SinkInput, TaskConfig, TaskDef},
+};
 
 pub struct LogSink {}
+
+impl LogSink {
+    pub fn new(config: &TaskConfig) -> Result<Box<dyn Sink>, String> {
+        Ok(Box::new(LogSink {}))
+    }
+}
 
 impl SinkInput<u64> for LogSink {
     const conn_name: &'static str = "input";
@@ -27,30 +37,26 @@ impl HasInputs for LogSink {
 }
 
 impl TaskDef for LogSink {
-    fn new(config: &crate::task_defs::TaskConfig) -> Result<Box<Self>, String> {
-        Ok(Box::new(LogSink {}))
-    }
-
     fn deinit(&mut self) -> Result<(), String> {
         Ok(())
     }
 }
 
+#[async_trait]
 impl Sink for LogSink {
-    fn handle_event_for_conn(
+    async fn handle_event_for_conn(
         &mut self,
         ctx: &crate::task_defs::MuetlSinkContext,
         conn_name: &String,
         ev: std::sync::Arc<crate::messages::event::Event>,
-    ) -> impl Future<Output = ()> + Send {
-        async move {
-            match conn_name.as_str() {
-                "input" => {
-                    self.handle(ctx, &*ev.get_data().downcast::<u64>().unwrap())
-                        .await
-                }
-                _ => println!("unknown incoming conn_name {}", conn_name),
+    ) {
+        match conn_name.as_str() {
+            "input" => {
+                // TODO: handle strings too
+                self.handle(ctx, &*ev.get_data().downcast::<u64>().unwrap())
+                    .await
             }
+            _ => println!("unknown incoming conn_name {}", conn_name),
         }
     }
 }

@@ -9,6 +9,7 @@ use crate::task_defs::{
     ConfigField, HasOutputs, MuetlContext, Output, OutputType, RegisteredType, TaskConfig,
     TaskConfigTpl, TaskDef,
 };
+use async_trait::async_trait;
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::message::OwnedMessage;
 use rdkafka::util::Timeout;
@@ -25,27 +26,27 @@ impl KafkaConsumer {
 }
 
 impl TaskDef for KafkaConsumer {
-    fn new(task_config: &TaskConfig) -> Result<Box<Self>, String> {
-        let mut config = ClientConfig::new();
-        config
-            .set(
-                "bootstrap.servers",
-                String::try_from(task_config.get("bootstrap.servers").unwrap()).unwrap(),
-            )
-            .set_log_level(rdkafka::config::RDKafkaLogLevel::Debug);
+    // fn new(task_config: &TaskConfig) -> Result<Box<Self>, String> {
+    //     let mut config = ClientConfig::new();
+    //     config
+    //         .set(
+    //             "bootstrap.servers",
+    //             String::try_from(task_config.get("bootstrap.servers").unwrap()).unwrap(),
+    //         )
+    //         .set_log_level(rdkafka::config::RDKafkaLogLevel::Debug);
 
-        let consumer: BaseConsumer = config.create().expect("Kafka consumer creation failed!");
+    //     let consumer: BaseConsumer = config.create().expect("Kafka consumer creation failed!");
 
-        let topic = String::try_from(task_config.get("input.topic").unwrap()).unwrap();
+    //     let topic = String::try_from(task_config.get("input.topic").unwrap()).unwrap();
 
-        consumer
-            .subscribe(vec![topic.as_str()].as_slice())
-            .expect(format!("failed to subscribe to topic '{}'", topic).as_str());
+    //     consumer
+    //         .subscribe(vec![topic.as_str()].as_slice())
+    //         .expect(format!("failed to subscribe to topic '{}'", topic).as_str());
 
-        Ok(Box::new(KafkaConsumer {
-            consumer: Some(consumer),
-        }))
-    }
+    //     Ok(Box::new(KafkaConsumer {
+    //         consumer: Some(consumer),
+    //     }))
+    // }
     fn task_config_tpl(&self) -> Option<crate::task_defs::TaskConfigTpl> {
         Some(TaskConfigTpl {
             fields: vec![
@@ -80,6 +81,7 @@ impl HasOutputs for KafkaConsumer {
     }
 }
 
+#[async_trait]
 impl Daemon for KafkaConsumer {
     async fn run(&mut self, ctx: &MuetlContext) {
         match self

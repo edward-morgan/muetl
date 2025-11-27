@@ -1,15 +1,9 @@
 use kameo::prelude::*;
-use std::{
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use kameo_actors::pubsub::{PubSub, Publish, Subscribe};
 
-use crate::{
-    messages::event::Event,
-    task_defs::TaskDef,
-};
+use crate::{messages::event::Event, task_defs::TaskDef};
 use crate::{
     runtime::{event::InternalEvent, EventMessage, NegotiatedType},
     util::new_id,
@@ -59,20 +53,12 @@ pub struct Connection {
     receiver_conn_name: String,
 }
 impl Connection {
-    pub fn new(
-        tpe: NegotiatedType,
-        // chan_ref: ChannelImpl,
-        // sender_id: u64,
-        sender_conn_name: String,
-        receiver_conn_name: String,
-    ) -> Self {
+    pub fn new(tpe: NegotiatedType, sender_conn_name: String, receiver_conn_name: String) -> Self {
         Self {
-            // chan_ref: chan_ref.clone(),
             chan_ref: Arc::new(PubSub::<EventMessage>::spawn(PubSub::new(
                 kameo_actors::DeliveryStrategy::Guaranteed,
             ))),
             chan_type: Arc::new(tpe),
-            // sender_id,
             sender_id: new_id(),
             sender_conn_name,
             receiver_conn_name,

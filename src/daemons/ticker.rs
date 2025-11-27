@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
+use async_trait::async_trait;
 use tokio::time::sleep;
 
 use crate::{
@@ -16,13 +17,13 @@ pub struct Ticker {
     iterations: u64,
 }
 impl TaskDef for Ticker {
-    fn new(config: &TaskConfig) -> Result<Box<Self>, String> {
-        Ok(Box::new(Ticker {
-            t: 0,
-            period: Duration::from_millis(u64::try_from(config.get("period_ms").unwrap()).unwrap()),
-            iterations: u64::try_from(config.get("iterations").unwrap()).unwrap(),
-        }))
-    }
+    // fn new(config: &TaskConfig) -> Result<Box<Self>, String> {
+    //     Ok(Box::new(Ticker {
+    //         t: 0,
+    //         period: Duration::from_millis(u64::try_from(config.get("period_ms").unwrap()).unwrap()),
+    //         iterations: u64::try_from(config.get("iterations").unwrap()).unwrap(),
+    //     }))
+    // }
 
     fn task_config_tpl(&self) -> Option<crate::task_defs::TaskConfigTpl> {
         Some(TaskConfigTpl {
@@ -51,6 +52,7 @@ impl HasOutputs for Ticker {
     }
 }
 
+#[async_trait]
 impl Daemon for Ticker {
     async fn run(&mut self, ctx: &crate::task_defs::MuetlContext) -> () {
         if self.t == self.iterations {

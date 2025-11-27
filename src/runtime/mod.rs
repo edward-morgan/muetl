@@ -3,6 +3,7 @@ pub mod daemon_actor;
 pub mod event;
 pub mod monitor_actor;
 pub mod node_actor;
+pub mod root;
 pub mod sink_actor;
 
 use kameo::prelude::*;
@@ -13,11 +14,7 @@ use std::{
     sync::Arc,
 };
 
-
-use crate::runtime::{
-    connection::OutgoingConnections,
-    event::InternalEvent,
-};
+use crate::runtime::{connection::OutgoingConnections, event::InternalEvent};
 use crate::{messages::event::Event, task_defs::OutputType};
 
 /// The Message type that internal actors pass around.
@@ -78,43 +75,6 @@ impl NegotiatedType {
                 }
                 Ok(())
             }
-        }
-    }
-}
-
-pub trait HasSubscriptions {
-    /// Retrieve the internal sender ID for the given node and output conn_name.
-    /// If the conn_name doesn't exist, return None.
-    // fn get_sender_id_for(&self, conn_name: &String) -> Result<u64, String>;
-    fn get_outputs(&mut self) -> HashMap<String, OutputType>;
-    // fn get_subscriber_channel(
-    //     &mut self,
-    //     conn_name: &String,
-    // ) -> Result<&mut OutgoingConnection, String>;
-    fn get_outgoing_connections(&self) -> &OutgoingConnections;
-
-    /// Produce the given Event to all subscribers for its conn_name. This function
-    /// performs a runtime type check to make sure that:
-    /// 1. The Event's `conn_name` exists in the outputs of the owned TaskDef.
-    /// 2. The underlying type of the Event's `data` matches the type of the TaskDef's output.
-    fn produce_output(&mut self, event: Event) -> impl Future<Output = Result<(), String>> {
-        async move {
-            // let sender_id = self.get_sender_id_for(&event.conn_name)?;
-            return self
-                .get_outgoing_connections()
-                .publish_to(Arc::new(event))
-                .await;
-            // let subscription = self.get_subscriber_channel(&event.conn_name)?;
-
-            // // Ensure that the event being produced matches the types listed for
-            // // this output.
-            // match subscription.chan_type.validate_types(vec![&event]) {
-            //     Ok(()) => {
-            //         subscription.publish_to(Arc::new(event)).await.unwrap(); // TODO: Handle these issues
-            //         Ok(())
-            //     }
-            //     e @ Err(_) => e,
-            // }
         }
     }
 }

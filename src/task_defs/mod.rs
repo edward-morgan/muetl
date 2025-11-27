@@ -2,17 +2,26 @@ pub mod daemon;
 pub mod node;
 pub mod sink;
 pub mod source;
-pub mod task;
 
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
     fmt::Debug,
+    sync::Arc,
 };
 
+use daemon::Daemon;
+use kameo::actor::ActorRef;
+use sink::Sink;
 use tokio::sync::mpsc::Sender;
 
-use crate::messages::{event::Event, Status};
+use crate::{
+    messages::{event::Event, Status},
+    runtime::{
+        connection::{IncomingConnections, OutgoingConnections},
+        sink_actor::SinkActor,
+    },
+};
 
 /// An OutputType represents the type of an output connection in a TaskDef.
 ///
@@ -103,13 +112,11 @@ impl Debug for OutputType {
 
 /// A TaskDef represents any process that is executed by muetl.
 pub trait TaskDef {
-    fn new(config: &TaskConfig) -> Result<Box<Self>, String>;
     /// TaskDefs may implement this to return the list of configuration options
     /// they may expect. By default, no configuration options are processed.
     fn task_config_tpl(&self) -> Option<TaskConfigTpl> {
         None
     }
-    // fn init(&mut self, config: TaskConfig) -> Result<(), String>;
     fn deinit(&mut self) -> Result<(), String> {
         Ok(())
     }
@@ -117,67 +124,6 @@ pub trait TaskDef {
 
 pub trait HasOutputs: TaskDef {
     fn get_outputs(&self) -> HashMap<String, OutputType>;
-
-    /// After the underlying event handling has returned a set of Events, validate that each ones'
-    /// conn_name matches the data type. If any Events do not match the expected conn_name - type
-    /// declared by the Node's implementation of Output<T>, then an error is returned.
-    fn validate_output(&self, events: &Vec<Event>) -> Result<(), String> {
-        let outputs = self.get_outputs();
-        for event in events {
-            if let Some(exp_type) = outputs.get(&event.conn_name) {
-                if !exp_type.check_type(event.get_data().type_id()) {
-                    return Err(
-                        format!("output Event for conn named '{}' has invalid type {:?} (expected one of {:?})",
-                            event.conn_name,
-                            event.get_data().type_id(),
-                            exp_type));
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-/// A MuetlContext contains information about the runtime environment that a TaskDef might need
-/// when running.
-pub struct MuetlContext {
-    /// For TaskDefs that produce outputs, the current mapping of output conn_names to the
-    /// type IDs that have been requested by subscribers. Note that each mapping has already
-    /// been validated against the full list of supported output types for the given
-    /// conn_name; this represents the list of types that are expected.
-    ///
-    /// Producers should use this to limit how much work they do when producing messages to
-    /// outputs that support multiple types. For example, take a Source that has an output
-    /// named "output_1" with possible output types [String, i32, bool]. At runtime, two
-    /// Sinks subscribe to the "output_1" connection:
-    /// - Sink #1 requests types `[i32, bool]`.
-    /// - Sink #2 requests type `[String]`.
-    ///
-    /// Prior to starting the TaskDefs, muetl will negotiate the acceptable types such that
-    /// all subscribers agree on the type they'll receive. For the example above, the list
-    /// of current subscribers would look like:
-    /// ```
-    /// {
-    ///   output_1: [i32, String]
-    /// }
-    /// ```
-    /// The Source should then use that information, stored in `current_subscribers`, to
-    /// only produce the types that are needed for `output_1`, instead of naively producing
-    /// messages of all its supported types ([String, i32, bool]).
-    ///
-    /// Note that `current_subscribers` may change between calls to a producer's run function
-    /// as new Tasks subscribe or unsubscribe.
-    pub current_subscribers: HashMap<String, Vec<TypeId>>,
-    /// The channel to send results back on, in the form of Events.
-    pub results: Sender<Event>,
-    /// The channel to send statuses back on.
-    pub status: Sender<Status>,
-}
-
-// A MuetlSinkContext contains the context a Sink should use when running.
-pub struct MuetlSinkContext {
-    /// The channel to send statuses back on.
-    pub status: Sender<Status>,
 }
 
 pub trait HasInputs: TaskDef {
@@ -216,22 +162,6 @@ pub trait Output<T> {
 /// TODO: Do we actually need this? Maybe not yet?
 pub struct RegisteredType {
     type_id: TypeId,
-}
-
-/// Any handler function should return this result, which breaks down into:
-/// 1. Err(message) if something went wrong while handling the input.
-/// 2. Ok((events, status)) otherwise. `events` gets type checked and produced
-/// as output messages. If `status` is present, then it is separately produced
-/// to the Monitoring service. Use `status` to report state changes like
-/// % complete, active, or finished.
-// pub type TaskResult = Result<(Vec<Event>, Option<Status>), String>;
-
-#[derive(Debug)]
-pub enum TaskResult {
-    Pass,
-    Events(Vec<Event>),
-    // Status(Status),
-    Error(String),
 }
 
 /// A particular configuration property that a TaskDef looks for. At runtime, the template
@@ -307,4 +237,47 @@ impl TryFrom<&TaskConfigValue> for String {
             Err(format!("cannot turn value into String"))
         }
     }
+}
+
+/// A MuetlContext contains information about the runtime environment that a TaskDef might need
+/// when running.
+pub struct MuetlContext {
+    /// For TaskDefs that produce outputs, the current mapping of output conn_names to the
+    /// type IDs that have been requested by subscribers. Note that each mapping has already
+    /// been validated against the full list of supported output types for the given
+    /// conn_name; this represents the list of types that are expected.
+    ///
+    /// Producers should use this to limit how much work they do when producing messages to
+    /// outputs that support multiple types. For example, take a Source that has an output
+    /// named "output_1" with possible output types [String, i32, bool]. At runtime, two
+    /// Sinks subscribe to the "output_1" connection:
+    /// - Sink #1 requests types `[i32, bool]`.
+    /// - Sink #2 requests type `[String]`.
+    ///
+    /// Prior to starting the TaskDefs, muetl will negotiate the acceptable types such that
+    /// all subscribers agree on the type they'll receive. For the example above, the list
+    /// of current subscribers would look like:
+    /// ```
+    /// {
+    ///   output_1: [i32, String]
+    /// }
+    /// ```
+    /// The Source should then use that information, stored in `current_subscribers`, to
+    /// only produce the types that are needed for `output_1`, instead of naively producing
+    /// messages of all its supported types ([String, i32, bool]).
+    ///
+    /// Note that `current_subscribers` may change between calls to a producer's run function
+    /// as new Tasks subscribe or unsubscribe.
+    pub current_subscribers: HashMap<String, Vec<TypeId>>,
+    /// The channel to send results back on, in the form of Events.
+    pub results: Sender<Event>,
+    /// The channel to send statuses back on.
+    pub status: Sender<Status>,
+}
+
+/// A MuetlSinkContext contains the context a Sink should use when running. It's different from a `MuetlContext` in that it has
+/// no output results channel, nor does it have a map of current subscribers.
+pub struct MuetlSinkContext {
+    /// The channel to send statuses back on.
+    pub status: Sender<Status>,
 }

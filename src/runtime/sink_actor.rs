@@ -15,7 +15,6 @@ use crate::{
 
 pub type OwnedSink<T> = Option<Box<T>>;
 
-// #[derive(Actor)]
 pub struct SinkActor<T: 'static>
 where
     T: Sink,
@@ -76,7 +75,7 @@ impl<T: Sink> Message<Arc<InternalEvent>> for SinkActor<T> {
                 let conn_name = input_conn_name.clone();
 
                 let fut = tokio::spawn(async move {
-                    sink.handle_event(&ctx, &conn_name, m).await;
+                    sink.handle_event_for_conn(&ctx, &conn_name, m).await;
                     sink
                 });
 

@@ -22,37 +22,35 @@ use crate::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Hello, world!");
+    // let conns = vec![Connection::new(
+    //     NegotiatedType::Singleton(TypeId::of::<u64>()),
+    //     "tick".to_string(),
+    //     "input".to_string(),
+    // )];
 
-    let conns = vec![Connection::new(
-        NegotiatedType::Singleton(TypeId::of::<u64>()),
-        "tick".to_string(),
-        "input".to_string(),
-    )];
+    // let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
+    // let log_sink = SinkActor::<LogSink>::new(
+    //     Some(Box::new(LogSink {})),
+    //     monitor_chan.clone(),
+    //     IncomingConnections::from(&conns),
+    // );
+    // let log_sink_ref = SinkActor::spawn(log_sink);
 
-    let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
-    let log_sink = SinkActor::<LogSink>::new(
-        Some(Box::new(LogSink {})),
-        monitor_chan.clone(),
-        IncomingConnections::from(&conns),
-    );
-    let log_sink_ref = SinkActor::spawn(log_sink);
+    // // TODO: Process config against config templates to get default values
+    // let mut cfg = HashMap::<String, TaskConfigValue>::new();
+    // cfg.insert("period_ms".to_string(), TaskConfigValue::Uint(500));
+    // cfg.insert("iterations".to_string(), TaskConfigValue::Uint(10));
 
-    // TODO: Process config against config templates to get default values
-    let mut cfg = HashMap::<String, TaskConfigValue>::new();
-    cfg.insert("period_ms".to_string(), TaskConfigValue::Uint(500));
-    cfg.insert("iterations".to_string(), TaskConfigValue::Uint(10));
+    // let ticker = Ticker::new(&cfg).unwrap();
+    // let ticker_daemon = DaemonActor::<Ticker>::new(
+    //     Some(ticker),
+    //     monitor_chan.clone(),
+    //     OutgoingConnections::from(&conns),
+    // );
 
-    let ticker = Ticker::new(&cfg).unwrap();
-    let ticker_daemon = DaemonActor::<Ticker>::new(
-        Some(ticker),
-        monitor_chan.clone(),
-        OutgoingConnections::from(&conns),
-    );
+    // let ticker_daemon_ref = DaemonActor::spawn(ticker_daemon);
 
-    let ticker_daemon_ref = DaemonActor::spawn(ticker_daemon);
-
-    sleep(Duration::from_secs(20));
+    // sleep(Duration::from_secs(20));
 
     Ok(())
 }
