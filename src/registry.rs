@@ -11,21 +11,25 @@ use crate::{
 
 use crate::task_defs::{daemon::Daemon, sink::Sink, MuetlSinkContext, OutputType};
 
-pub struct DaemonDef {
-    pub name: String,
-    pub inputs: Option<HashMap<String, Vec<TypeId>>>,
+#[derive(Debug)]
+pub struct TaskInfo {
+    pub task_id: String,
     pub config_tpl: Option<TaskConfigTpl>,
-    pub build_daemon: fn(&TaskConfig) -> Result<Box<dyn Sink>, String>,
+    pub info: TaskDefInfo,
+}
+#[derive(Debug)]
+pub enum TaskDefInfo {
+    DaemonDef {
+        outputs: HashMap<String, Vec<TypeId>>,
+        build_daemon: fn(&TaskConfig) -> Result<Box<dyn Daemon>, String>,
+    },
+    SinkDef {
+        inputs: HashMap<String, Vec<TypeId>>,
+        build_sink: fn(&TaskConfig) -> Result<Box<dyn Sink>, String>,
+    },
 }
 
-pub struct SinkDef {
-    pub name: String,
-    pub inputs: Option<HashMap<String, Vec<TypeId>>>,
-    pub config_tpl: Option<TaskConfigTpl>,
-    pub build_sink: fn(&TaskConfig) -> Result<Box<dyn Sink>, String>,
-}
-
-impl SinkDef {
+impl TaskDefInfo {
     pub fn validate(
         &self,
         inputs: &IncomingConnections,
@@ -42,50 +46,49 @@ impl SinkDef {
 }
 
 pub struct Registry {
-    daemons: Vec<DaemonDef>,
-    sinks: Vec<SinkDef>,
+    defs: Vec<Arc<TaskInfo>>,
 }
 
 impl Registry {
-    pub fn add_sink(&mut self, sink_def: SinkDef) {
-        self.sinks.push(sink_def);
+    pub fn new() -> Self {
+        Self { defs: vec![] }
     }
-    pub fn add_daemon(&mut self, daemon_def: DaemonDef) {
-        self.daemons.push(daemon_def);
+    pub fn add_def(&mut self, def: TaskInfo) {
+        self.defs.push(Arc::new(def));
     }
 
-    /// Finds a sink with the given name; if it isn't found, Ok(None) is returned. If it is found,
-    /// attempt to build it; if that errors, return Err; otherwise, return Ok(Some(sink)).
-    pub fn sink_for(
-        &self,
-        name: &String,
-        config_tpl: &TaskConfig,
-    ) -> Result<Option<Box<dyn Sink>>, String> {
-        for def in &self.sinks {
-            if def.name == *name {
-                return match (def.build_sink)(config_tpl) {
-                    Ok(s) => Ok(Some(s)),
-                    Err(e) => Err(format!("failed to construct sink named {}: {}", name, e)),
-                };
+    pub fn def_for(&self, name: &String) -> Option<Arc<TaskInfo>> {
+        for def in &self.defs {
+            if def.task_id == *name {
+                return Some(def.clone());
             }
         }
-        Ok(None)
+        None
     }
-    pub fn daemon_for(
-        &self,
-        name: &String,
-        config_tpl: &TaskConfig,
-    ) -> Result<Option<Box<dyn Sink>>, String> {
-        for def in &self.daemons {
-            if def.name == *name {
-                return match (def.build_daemon)(config_tpl) {
-                    Ok(s) => Ok(Some(s)),
-                    Err(e) => Err(format!("failed to construct sink named {}: {}", name, e)),
-                };
-            }
-        }
-        Ok(None)
-    }
+
+    // Finds a sink with the given name; if it isn't found, Ok(None) is returned. If it is found,
+    // attempt to build it; if that errors, return Err; otherwise, return Ok(Some(sink)).
+    // pub fn build_def_for(
+    //     &self,
+    //     name: &String,
+    //     config_tpl: &TaskConfig,
+    // ) -> Result<Option<Box<dyn Sink>>, String> {
+    //     for def in &self.defs {
+    //         if def.name == *name {
+    //             let builder = match def.info {
+    //                 TaskDefInfo::DaemonDef { build_daemon, .. } => match build_daemon(config_tpl) {
+    //                     Ok(s) => Ok(Some(s)),
+    //                     Err(e) => Err(format!("failed to construct sink named {}: {}", name, e)),
+    //                 },
+    //                 TaskDefInfo::SinkDef { build_sink, .. } => match build_sink(config_tpl) {
+    //                     Ok(s) => Ok(Some(s)),
+    //                     Err(e) => Err(format!("failed to construct sink named {}: {}", name, e)),
+    //                 },
+    //             };
+    //         }
+    //     }
+    //     Ok(None)
+    // }
 }
 
 #[cfg(test)]
@@ -95,12 +98,5 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test() {
-        let sd = SinkDef {
-            name: format!("LogSink"),
-            inputs: None, // TODO: Wrong
-            config_tpl: None,
-            build_sink: LogSink::new,
-        };
-    }
+    fn test() {}
 }

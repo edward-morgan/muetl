@@ -166,6 +166,7 @@ pub struct RegisteredType {
 
 /// A particular configuration property that a TaskDef looks for. At runtime, the template
 /// will be processed, and a `TaskConfig` will be returned.
+#[derive(Debug)]
 pub struct TaskConfigTpl {
     /// Single configuration fields. `name` must be matched exactly for this template to be processed.
     pub fields: Vec<ConfigField>,
@@ -173,6 +174,7 @@ pub struct TaskConfigTpl {
     /// processing will return an error.
     pub disallow_unknown_fields: bool,
 }
+#[derive(Debug)]
 pub struct ConfigField {
     pub name: String,
     pub required: bool,
@@ -209,6 +211,7 @@ pub type TaskConfig = HashMap<String, TaskConfigValue>;
 //
 // TODO: the usage semantics here aren't very good - is there a better way to do things? Can TaskDefs define their own configuration structs? Is there a crate that does this?
 
+#[derive(Debug)]
 pub enum TaskConfigValue {
     Str(String),
     Int(i64),

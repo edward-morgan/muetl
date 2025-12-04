@@ -20,6 +20,7 @@ use crate::{messages::event::Event, task_defs::OutputType};
 /// The Message type that internal actors pass around.
 pub type EventMessage = Arc<InternalEvent>;
 
+#[derive(Debug)]
 pub enum NegotiatedType {
     Singleton(TypeId),
     AllOf(Vec<TypeId>),
