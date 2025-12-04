@@ -1,11 +1,8 @@
-use std::{any::TypeId, collections::HashMap, future::Future};
+use std::{any::TypeId, collections::HashMap};
 
 use async_trait::async_trait;
 
-use crate::{
-    runtime::connection::{IncomingConnections, OutgoingConnections},
-    task_defs::{sink::Sink, HasInputs, Input, SinkInput, TaskConfig, TaskDef},
-};
+use crate::task_defs::{sink::Sink, Input, SinkInput, TaskConfig, TaskDef};
 
 pub struct LogSink {}
 
@@ -28,13 +25,13 @@ impl SinkInput<String> for LogSink {
     }
 }
 
-impl HasInputs for LogSink {
-    fn get_inputs(&self) -> std::collections::HashMap<String, std::any::TypeId> {
-        let mut hm = HashMap::new();
-        hm.insert("input".to_string(), TypeId::of::<u64>());
-        hm
-    }
-}
+// impl HasInputs for LogSink {
+//     fn get_inputs(&self) -> std::collections::HashMap<String, std::any::TypeId> {
+//         let mut hm = HashMap::new();
+//         hm.insert("input".to_string(), TypeId::of::<u64>());
+//         hm
+//     }
+// }
 
 impl TaskDef for LogSink {
     fn deinit(&mut self) -> Result<(), String> {

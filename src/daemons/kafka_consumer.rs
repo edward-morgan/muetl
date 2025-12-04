@@ -6,14 +6,12 @@ use std::time::Duration;
 use crate::messages::event::Event;
 use crate::task_defs::daemon::Daemon;
 use crate::task_defs::{
-    ConfigField, HasOutputs, MuetlContext, Output, OutputType, RegisteredType, TaskConfig,
-    TaskConfigTpl, TaskDef,
+    ConfigField, MuetlContext, Output, OutputType, RegisteredType, TaskConfigTpl, TaskDef,
 };
 use async_trait::async_trait;
-use rdkafka::consumer::{BaseConsumer, Consumer};
+use rdkafka::consumer::BaseConsumer;
 use rdkafka::message::OwnedMessage;
 use rdkafka::util::Timeout;
-use rdkafka::ClientConfig;
 
 pub struct KafkaConsumer {
     consumer: Option<BaseConsumer>,
@@ -70,16 +68,16 @@ impl Output<OwnedMessage> for KafkaConsumer {
     const conn_name: &'static str = "deserialized_message";
 }
 
-impl HasOutputs for KafkaConsumer {
-    fn get_outputs(&self) -> HashMap<String, OutputType> {
-        let mut hm = HashMap::new();
-        hm.insert(
-            "deserialized_message".to_string(),
-            OutputType::singleton(TypeId::of::<RegisteredType>()),
-        );
-        hm
-    }
-}
+// impl HasOutputs for KafkaConsumer {
+//     fn get_outputs(&self) -> HashMap<String, OutputType> {
+//         let mut hm = HashMap::new();
+//         hm.insert(
+//             "deserialized_message".to_string(),
+//             OutputType::singleton(TypeId::of::<RegisteredType>()),
+//         );
+//         hm
+//     }
+// }
 
 #[async_trait]
 impl Daemon for KafkaConsumer {

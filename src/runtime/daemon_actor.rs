@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use kameo::{actor::ActorRef, error::Infallible, prelude::Message, Actor};
 use kameo_actors::pubsub::{PubSub, Publish};
@@ -12,26 +12,21 @@ use crate::{
     messages::{Status, StatusUpdate},
     runtime::connection::OutgoingConnections,
     system::util::new_id,
-    task_defs::{daemon::Daemon, MuetlContext, OutputType},
+    task_defs::{daemon::Daemon, MuetlContext},
 };
 
-pub type OwnedDaemon<T> = Option<Box<T>>;
-
-pub struct DaemonActor<T: 'static>
-where
-    T: Daemon + Send,
-{
+pub struct DaemonActor {
     id: u64,
-    daemon: OwnedDaemon<T>,
+    daemon: Option<Box<dyn Daemon>>,
     monitor_chan: ActorRef<PubSub<StatusUpdate>>,
     current_context: MuetlContext,
     /// A mapping of output conn_names to internal sender IDs.
     outgoing_connections: OutgoingConnections,
 }
 
-impl<T: Daemon> DaemonActor<T> {
+impl DaemonActor {
     pub fn new(
-        daemon: OwnedDaemon<T>,
+        daemon: Option<Box<dyn Daemon>>,
         monitor_chan: ActorRef<PubSub<StatusUpdate>>,
         outgoing_connections: OutgoingConnections,
     ) -> Self {
@@ -53,7 +48,7 @@ impl<T: Daemon> DaemonActor<T> {
     }
 }
 
-impl<T: Daemon> Message<()> for DaemonActor<T> {
+impl Message<()> for DaemonActor {
     type Reply = ();
     async fn handle(
         &mut self,
@@ -134,7 +129,7 @@ impl<T: Daemon> Message<()> for DaemonActor<T> {
     }
 }
 
-impl<T: Daemon> Actor for DaemonActor<T> {
+impl Actor for DaemonActor {
     type Args = Self;
     type Error = Infallible;
     async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {

@@ -6,8 +6,7 @@ use tokio::time::sleep;
 use crate::{
     messages::event::Event,
     task_defs::{
-        daemon::Daemon, ConfigField, HasOutputs, Output, OutputType, TaskConfig, TaskConfigTpl,
-        TaskConfigValue, TaskDef,
+        daemon::Daemon, ConfigField, Output, TaskConfig, TaskConfigTpl, TaskConfigValue, TaskDef,
     },
 };
 
@@ -16,15 +15,16 @@ pub struct Ticker {
     period: Duration,
     iterations: u64,
 }
+impl Ticker {
+    pub fn new(config: &TaskConfig) -> Result<Box<dyn Daemon>, String> {
+        Ok(Box::new(Ticker {
+            t: 0,
+            period: Duration::from_millis(u64::try_from(config.get("period_ms").unwrap()).unwrap()),
+            iterations: u64::try_from(config.get("iterations").unwrap()).unwrap(),
+        }))
+    }
+}
 impl TaskDef for Ticker {
-    // fn new(config: &TaskConfig) -> Result<Box<Self>, String> {
-    //     Ok(Box::new(Ticker {
-    //         t: 0,
-    //         period: Duration::from_millis(u64::try_from(config.get("period_ms").unwrap()).unwrap()),
-    //         iterations: u64::try_from(config.get("iterations").unwrap()).unwrap(),
-    //     }))
-    // }
-
     fn task_config_tpl(&self) -> Option<crate::task_defs::TaskConfigTpl> {
         Some(TaskConfigTpl {
             fields: vec![
@@ -44,13 +44,13 @@ impl Output<u64> for Ticker {
     const conn_name: &'static str = "tick";
 }
 
-impl HasOutputs for Ticker {
-    fn get_outputs(&self) -> HashMap<String, OutputType> {
-        let mut hm = HashMap::new();
-        hm.insert("tick".to_string(), OutputType::singleton_of::<u64>());
-        hm
-    }
-}
+// impl HasOutputs for Ticker {
+//     fn get_outputs(&self) -> HashMap<String, OutputType> {
+//         let mut hm = HashMap::new();
+//         hm.insert("tick".to_string(), OutputType::singleton_of::<u64>());
+//         hm
+//     }
+// }
 
 #[async_trait]
 impl Daemon for Ticker {

@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use kameo_actors::pubsub::{PubSub, Publish, Subscribe};
 
-use crate::{messages::event::Event, task_defs::TaskDef};
+use crate::messages::event::Event;
 use crate::{
     runtime::{event::InternalEvent, EventMessage, NegotiatedType},
     util::new_id,
@@ -70,8 +70,8 @@ pub struct IncomingConnections {
     conns: HashMap<u64, Arc<IncomingConnection>>,
 }
 
-impl From<&Vec<Connection>> for IncomingConnections {
-    fn from(value: &Vec<Connection>) -> Self {
+impl From<&Vec<&Connection>> for IncomingConnections {
+    fn from(value: &Vec<&Connection>) -> Self {
         let mut conns = HashMap::new();
         value.iter().for_each(|c| {
             conns.insert(c.sender_id, Arc::new(IncomingConnection::from(&c)));
@@ -131,8 +131,8 @@ pub struct OutgoingConnections {
     /// The mapping from output conn_name to OutgoingConnection for this Task.
     conns: HashMap<String, Arc<OutgoingConnection>>,
 }
-impl From<&Vec<Connection>> for OutgoingConnections {
-    fn from(value: &Vec<Connection>) -> Self {
+impl From<&Vec<&Connection>> for OutgoingConnections {
+    fn from(value: &Vec<&Connection>) -> Self {
         let mut conns = HashMap::new();
         value.iter().for_each(|c| {
             conns.insert(

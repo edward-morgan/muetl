@@ -1,15 +1,11 @@
-use std::{
-    any::{Any, TypeId},
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{any::TypeId, collections::HashMap, sync::Arc};
 
 use crate::{
-    runtime::connection::{IncomingConnections, OutgoingConnections},
-    task_defs::{HasInputs, HasOutputs, TaskConfig, TaskConfigTpl, TaskDef},
+    runtime::connection::IncomingConnections,
+    task_defs::{TaskConfig, TaskConfigTpl},
 };
 
-use crate::task_defs::{daemon::Daemon, sink::Sink, MuetlSinkContext, OutputType};
+use crate::task_defs::{daemon::Daemon, sink::Sink};
 
 #[derive(Debug)]
 pub struct TaskInfo {
@@ -35,7 +31,7 @@ impl TaskDefInfo {
         inputs: &IncomingConnections,
         config: &TaskConfig,
     ) -> Result<(), Vec<String>> {
-        let mut errors = vec![];
+        let errors = vec![];
 
         if errors.len() > 0 {
             Err(errors)
@@ -54,6 +50,7 @@ impl Registry {
         Self { defs: vec![] }
     }
     pub fn add_def(&mut self, def: TaskInfo) {
+        // TODO: Validate incoming TaskInfo
         self.defs.push(Arc::new(def));
     }
 
@@ -93,9 +90,6 @@ impl Registry {
 
 #[cfg(test)]
 mod tests {
-    use crate::sinks::log_sink::LogSink;
-
-    use super::*;
 
     #[test]
     fn test() {}

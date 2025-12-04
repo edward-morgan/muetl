@@ -7,21 +7,11 @@ use std::{
     any::{Any, TypeId},
     collections::HashMap,
     fmt::Debug,
-    sync::Arc,
 };
 
-use daemon::Daemon;
-use kameo::actor::ActorRef;
-use sink::Sink;
 use tokio::sync::mpsc::Sender;
 
-use crate::{
-    messages::{event::Event, Status},
-    runtime::{
-        connection::{IncomingConnections, OutgoingConnections},
-        sink_actor::SinkActor,
-    },
-};
+use crate::messages::{event::Event, Status};
 
 /// An OutputType represents the type of an output connection in a TaskDef.
 ///
@@ -122,13 +112,13 @@ pub trait TaskDef {
     }
 }
 
-pub trait HasOutputs: TaskDef {
-    fn get_outputs(&self) -> HashMap<String, OutputType>;
-}
+// pub trait HasOutputs: TaskDef {
+//     fn get_outputs(&self) -> HashMap<String, OutputType>;
+// }
 
-pub trait HasInputs: TaskDef {
-    fn get_inputs(&self) -> HashMap<String, TypeId>;
-}
+// pub trait HasInputs: TaskDef {
+//     fn get_inputs(&self) -> HashMap<String, TypeId>;
+// }
 
 /// Users should implement Input<Some Type> to declare that their Node is
 /// capable of processing that type of message on the given connection named
@@ -260,11 +250,9 @@ pub struct MuetlContext {
     /// Prior to starting the TaskDefs, muetl will negotiate the acceptable types such that
     /// all subscribers agree on the type they'll receive. For the example above, the list
     /// of current subscribers would look like:
-    /// ```
     /// {
     ///   output_1: [i32, String]
     /// }
-    /// ```
     /// The Source should then use that information, stored in `current_subscribers`, to
     /// only produce the types that are needed for `output_1`, instead of naively producing
     /// messages of all its supported types ([String, i32, bool]).

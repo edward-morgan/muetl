@@ -10,17 +10,16 @@ use kameo::prelude::*;
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
-    future::Future,
     sync::Arc,
 };
 
-use crate::runtime::{connection::OutgoingConnections, event::InternalEvent};
-use crate::{messages::event::Event, task_defs::OutputType};
+use crate::messages::event::Event;
+use crate::runtime::event::InternalEvent;
 
 /// The Message type that internal actors pass around.
 pub type EventMessage = Arc<InternalEvent>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum NegotiatedType {
     Singleton(TypeId),
     AllOf(Vec<TypeId>),

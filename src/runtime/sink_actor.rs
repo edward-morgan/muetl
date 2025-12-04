@@ -13,23 +13,18 @@ use crate::{
     util::new_id,
 };
 
-pub type OwnedSink<T> = Option<Box<T>>;
-
-pub struct SinkActor<T: 'static>
-where
-    T: Sink,
-{
+pub struct SinkActor {
     id: u64,
-    sink: OwnedSink<T>,
+    sink: Option<Box<dyn Sink>>,
     monitor_chan: ActorRef<PubSub<StatusUpdate>>,
     /// The mapping set by the system at runtime to tell this actor which
     /// input conn_name events with a given sender_id should go to.
     subscriptions: IncomingConnections,
 }
 
-impl<T: Sink> SinkActor<T> {
+impl SinkActor {
     pub fn new(
-        sink: OwnedSink<T>,
+        sink: Option<Box<dyn Sink>>,
         monitor_chan: ActorRef<PubSub<StatusUpdate>>,
         subscriptions: IncomingConnections,
     ) -> Self {
@@ -42,7 +37,7 @@ impl<T: Sink> SinkActor<T> {
     }
 }
 
-impl<T: Sink> Message<Arc<SystemEvent>> for SinkActor<T> {
+impl Message<Arc<SystemEvent>> for SinkActor {
     type Reply = ();
     async fn handle(
         &mut self,
@@ -54,7 +49,7 @@ impl<T: Sink> Message<Arc<SystemEvent>> for SinkActor<T> {
     }
 }
 
-impl<T: Sink> Message<Arc<InternalEvent>> for SinkActor<T> {
+impl Message<Arc<InternalEvent>> for SinkActor {
     type Reply = ();
     async fn handle(
         &mut self,
@@ -117,7 +112,7 @@ impl<T: Sink> Message<Arc<InternalEvent>> for SinkActor<T> {
         }
     }
 }
-impl<T: Sink> Actor for SinkActor<T> {
+impl Actor for SinkActor {
     type Args = Self;
     type Error = String;
     async fn on_start(
