@@ -92,6 +92,7 @@ impl Message<()> for DaemonActor {
                         match &status {
                             Status::Finished => {
                                 println!("Daemon is finished; exiting...");
+                                self.outgoing_connections.broadcast_shutdown().await;
                                 ctx.stop();
                             }
                             _ => {},
@@ -105,7 +106,6 @@ impl Message<()> for DaemonActor {
 
         match fut.await {
             Ok(daemon) => {
-                println!("Run finished");
                 // Replace the daemon
                 self.daemon = Some(daemon);
                 // Enqueue another iteration

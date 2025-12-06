@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use kameo::{actor::ActorRef, prelude::Message, Actor};
@@ -13,6 +14,8 @@ use crate::{
     util::new_id,
 };
 
+use super::event::Payload;
+
 pub struct SinkActor {
     id: u64,
     sink: Option<Box<dyn Sink>>,
@@ -20,6 +23,7 @@ pub struct SinkActor {
     /// The mapping set by the system at runtime to tell this actor which
     /// input conn_name events with a given sender_id should go to.
     subscriptions: IncomingConnections,
+    active_subscriptions: HashSet<u64>,
 }
 
 impl SinkActor {
@@ -28,12 +32,20 @@ impl SinkActor {
         monitor_chan: ActorRef<PubSub<StatusUpdate>>,
         subscriptions: IncomingConnections,
     ) -> Self {
+        let incoming_sender_ids = subscriptions.incoming_sender_ids();
         SinkActor {
             id: new_id(),
             sink,
             monitor_chan,
             subscriptions,
+            active_subscriptions: incoming_sender_ids,
         }
+    }
+
+    /// Determines whether or not this Sink should shut down, which relies on looking at each incoming connection
+    /// and determining if any of them can potentially receive data.
+    pub fn should_shut_down(&self) -> bool {
+        self.active_subscriptions.is_empty()
     }
 }
 
@@ -56,58 +68,67 @@ impl Message<Arc<InternalEvent>> for SinkActor {
         msg: Arc<InternalEvent>,
         ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        // Map the incoming event to the right input conn_name
-        match self.subscriptions.conn_name_for(msg.clone()) {
-            Ok(input_conn_name) => {
-                // TODO: ideally we don't have to do this. OTOH, I don't like the incoming events to have
-                // the wrong conn_name associated with them...
-                // msg.event.conn_name = input_conn_name.clone();
-                let (status_tx, mut status_rx) = mpsc::channel(100);
-                let ctx = MuetlSinkContext { status: status_tx };
-
-                let mut sink = self.sink.take().unwrap();
-                let m = msg.event.clone();
-                let conn_name = input_conn_name.clone();
-
-                let fut = tokio::spawn(async move {
-                    sink.handle_event_for_conn(&ctx, &conn_name, m).await;
-                    sink
-                });
-
-                loop {
-                    tokio::select! {
-                        res = status_rx.recv() => {
-                            if let Some(status) = res {
-                                println!("Received status {:?}", status);
-                                let update = StatusUpdate{status: status, id: self.id};
-                                self.monitor_chan.tell(Publish(update)).await.unwrap();
-                            } else {
-                                break;
-                            }
-                        },
-                    }
-                }
-
-                match fut.await {
-                    Ok(sink) => {
-                        println!("Sink run finished");
-                        self.sink = Some(sink);
-                    }
-                    Err(e) => {
-                        println!("Sink task panicked: {:?}", e);
-                        // Send a failure message to the monitor
-                        self.monitor_chan
-                            .tell(Publish(StatusUpdate {
-                                id: self.id,
-                                status: Status::Failed(e.to_string()),
-                            }))
-                            .await
-                            .unwrap()
-                    }
+        match &msg.event {
+            Payload::Stopped => {
+                // Mark the current IncomingConnection as stopped
+                self.active_subscriptions.remove(&msg.sender_id);
+                // If no incoming connections are active, then stop the Actor.
+                if self.should_shut_down() {
+                    println!("No incoming connections are still active; Sink will shut down.");
+                    ctx.stop();
                 }
             }
-            Err(e) => {
-                println!("Runtime error: {}", e)
+            Payload::Data(ev) => {
+                // Map the incoming event to the right input conn_name
+                match self.subscriptions.conn_name_for(msg.clone()) {
+                    Ok(input_conn_name) => {
+                        let (status_tx, mut status_rx) = mpsc::channel(100);
+                        let ctx = MuetlSinkContext { status: status_tx };
+
+                        let mut sink = self.sink.take().unwrap();
+                        let m = ev.clone();
+                        let conn_name = input_conn_name.clone();
+
+                        let fut = tokio::spawn(async move {
+                            sink.handle_event_for_conn(&ctx, &conn_name, m).await;
+                            sink
+                        });
+
+                        loop {
+                            tokio::select! {
+                                res = status_rx.recv() => {
+                                    if let Some(status) = res {
+                                        println!("Received status {:?}", status);
+                                        let update = StatusUpdate{status: status, id: self.id};
+                                        self.monitor_chan.tell(Publish(update)).await.unwrap();
+                                    } else {
+                                        break;
+                                    }
+                                },
+                            }
+                        }
+
+                        match fut.await {
+                            Ok(sink) => {
+                                self.sink = Some(sink);
+                            }
+                            Err(e) => {
+                                println!("Sink task panicked: {:?}", e);
+                                // Send a failure message to the monitor
+                                self.monitor_chan
+                                    .tell(Publish(StatusUpdate {
+                                        id: self.id,
+                                        status: Status::Failed(e.to_string()),
+                                    }))
+                                    .await
+                                    .unwrap()
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("Runtime error: {}", e)
+                    }
+                }
             }
         }
     }

@@ -9,5 +9,13 @@ pub struct InternalEvent {
     /// The sender's ID as set at runtime when instantiated by the system.
     /// A sender_id is composed of the unique ID of the sending actor + an ID representing the connection it's being sent on.
     pub sender_id: u64,
-    pub event: Arc<Event>,
+    // pub event: Arc<Event>,
+    pub event: Payload,
+}
+
+#[derive(Clone)]
+pub enum Payload {
+    Data(Arc<Event>),
+    /// The sender will not send any further Events on this connection.
+    Stopped,
 }

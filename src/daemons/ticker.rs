@@ -44,14 +44,6 @@ impl Output<u64> for Ticker {
     const conn_name: &'static str = "tick";
 }
 
-// impl HasOutputs for Ticker {
-//     fn get_outputs(&self) -> HashMap<String, OutputType> {
-//         let mut hm = HashMap::new();
-//         hm.insert("tick".to_string(), OutputType::singleton_of::<u64>());
-//         hm
-//     }
-// }
-
 #[async_trait]
 impl Daemon for Ticker {
     async fn run(&mut self, ctx: &crate::task_defs::MuetlContext) -> () {

@@ -97,6 +97,9 @@ impl Actor for Root {
     ) -> Result<(), Self::Error> {
         Ok(())
     }
+
+    // TODO: How does the Root node know how to shut down when all other nodes have finished?
+    // Do we try to use Linked Actors?
 }
 
 struct EdgeConnections<'a> {

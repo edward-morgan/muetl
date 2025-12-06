@@ -1,4 +1,5 @@
 use kameo::prelude::*;
+use std::collections::HashSet;
 use std::{collections::HashMap, sync::Arc};
 
 use kameo_actors::pubsub::{PubSub, Publish, Subscribe};
@@ -8,6 +9,8 @@ use crate::{
     runtime::{event::InternalEvent, EventMessage, NegotiatedType},
     util::new_id,
 };
+
+use super::event::Payload;
 
 type ChannelImpl = Arc<ActorRef<PubSub<EventMessage>>>;
 /*
@@ -107,6 +110,11 @@ impl IncomingConnections {
         }
         Ok(())
     }
+
+    /// Returns the list of sender IDs that are in this IncomingConnections set.
+    pub fn incoming_sender_ids(&self) -> HashSet<u64> {
+        self.conns.iter().map(|(&id, _)| id).collect()
+    }
 }
 
 /// The side of a `Connection` that is provided to consumer Tasks (Sinks and Nodes).
@@ -115,6 +123,9 @@ pub struct IncomingConnection {
     pub chan_ref: ChannelImpl,
     sender_id: u64,
     pub receiver_conn_name: String, // Descriptive only
+    /// Whether or not this connection is active, which corresponds to whether or not a sender has sent the
+    /// `Payload::Stopped` event type.
+    pub is_active: bool,
 }
 impl IncomingConnection {
     pub fn from(c: &Connection) -> Self {
@@ -123,6 +134,7 @@ impl IncomingConnection {
             chan_type: c.chan_type.clone(),
             sender_id: c.sender_id,
             receiver_conn_name: c.receiver_conn_name.clone(),
+            is_active: true,
         }
     }
 }
@@ -171,6 +183,13 @@ impl OutgoingConnections {
             ))
         }
     }
+
+    /// Send a sentinel shutdown message to **all** outgoing connections.
+    pub async fn broadcast_shutdown(&self) {
+        for (_id, conn) in &self.conns {
+            conn.shutdown().await;
+        }
+    }
 }
 
 /// The side of a `Connection` that is provided to producer Tasks (Daemons, Sources, and Nodes).
@@ -196,9 +215,19 @@ impl OutgoingConnection {
         self.chan_ref
             .tell(Publish(Arc::new(InternalEvent {
                 sender_id: self.sender_id,
-                event: ev.clone(),
+                event: Payload::Data(ev.clone()),
             })))
             .await
             .unwrap();
+    }
+
+    pub async fn shutdown(&self) {
+        self.chan_ref
+            .tell(Publish(Arc::new(InternalEvent {
+                sender_id: self.sender_id,
+                event: Payload::Stopped,
+            })))
+            .await
+            .unwrap()
     }
 }
