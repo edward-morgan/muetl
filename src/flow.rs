@@ -226,7 +226,7 @@ impl Display for NodeRef {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Edge {
     pub from: NodeRef,
     pub to: NodeRef,

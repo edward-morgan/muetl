@@ -1,10 +1,10 @@
-use std::{any::TypeId, collections::HashMap, rc::Rc, sync::Arc};
+use std::{any::TypeId, collections::HashMap, ops::ControlFlow, rc::Rc, sync::Arc};
 
 use kameo::prelude::*;
 use kameo_actors::pubsub::PubSub;
 
 use crate::{
-    flow::{Edge, Flow, NodeRef},
+    flow::{Edge, Flow, Node, NodeRef},
     messages::StatusUpdate,
     registry::{Registry, TaskDefInfo, TaskInfo},
     util::new_id,
@@ -29,14 +29,68 @@ pub struct Root {
     flow: Flow,
     /// A channel that all tasks under this Root will send status updates to
     monitor_chan: ActorRef<PubSub<StatusUpdate>>,
+    /// The parsed set of Connections that are retrieved from the Flow and passed to actors
+    connections: EdgeConnections,
+    /// As Actors are instantiated, this keeps track of the IDs that Kameo assigns them and maps them to node_ids in the
+    /// Flow. This is primarily used when a supervised Actor dies and needs to be restarted.
+    /// Note that the node mapping contains only *active* Nodes.
+    actor_node_mapping: HashMap<ActorId, String>,
 }
 
 impl Root {
     pub fn new(flow: Flow, monitor_chan: ActorRef<PubSub<StatusUpdate>>) -> Self {
+        let edges = flow.edges.clone();
         Self {
             id: new_id(),
             flow,
             monitor_chan,
+            connections: EdgeConnections::from(edges),
+            actor_node_mapping: HashMap::new(),
+        }
+    }
+
+    /// Given a node to spawn, build it, and return the actor's ID if successful.
+    async fn spawn_actor_for_node(
+        &self,
+        actor_ref: &ActorRef<Root>,
+        node_id: &String,
+        node: &Node,
+    ) -> Result<ActorId, String> {
+        match &node.info.as_ref().unwrap().info {
+            TaskDefInfo::DaemonDef {
+                outputs: _outputs,
+                build_daemon,
+            } => match build_daemon(&node.configuration) {
+                Ok(daemon) => {
+                    let r = DaemonActor::new(
+                        Some(daemon),
+                        self.monitor_chan.clone(),
+                        self.connections.outgoing_connections_from(&node_id),
+                    );
+                    let r = DaemonActor::spawn_link(&actor_ref, r).await;
+                    Ok(r.id())
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+            },
+            TaskDefInfo::SinkDef {
+                inputs: _inputs,
+                build_sink,
+            } => match build_sink(&node.configuration) {
+                Ok(sink) => {
+                    let r = SinkActor::new(
+                        Some(sink),
+                        self.monitor_chan.clone(),
+                        self.connections.incoming_connections_to(node_id),
+                    );
+                    let r = SinkActor::spawn_link(&actor_ref, r).await;
+                    Ok(r.id())
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+            },
         }
     }
 }
@@ -47,47 +101,19 @@ impl Actor for Root {
 
     /// On startup, the root should instantiate supervised actors for each of the Nodes in the validated Flow it
     /// receives when constructed.
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        // Turn every Edge into a Connection
-        let connections = EdgeConnections::from(args.flow.edges.iter().collect::<Vec<&Edge>>());
-
+    async fn on_start(
+        mut args: Self::Args,
+        actor_ref: ActorRef<Self>,
+    ) -> Result<Self, Self::Error> {
         for (node_id, node) in &args.flow.nodes {
-            match &node.info.as_ref().unwrap().info {
-                TaskDefInfo::DaemonDef {
-                    outputs: _outputs,
-                    build_daemon,
-                } => match build_daemon(&node.configuration) {
-                    Ok(daemon) => {
-                        let r = DaemonActor::new(
-                            Some(daemon),
-                            args.monitor_chan.clone(),
-                            connections.outgoing_connections_from(&node_id),
-                        );
-                        DaemonActor::spawn(r);
-                    }
-                    Err(e) => {
-                        return Err(e);
-                    }
-                },
-                TaskDefInfo::SinkDef { inputs, build_sink } => {
-                    match build_sink(&node.configuration) {
-                        Ok(sink) => {
-                            let r = SinkActor::new(
-                                Some(sink),
-                                args.monitor_chan.clone(),
-                                connections.incoming_connections_to(node_id),
-                            );
-                            SinkActor::spawn(r);
-                        }
-                        Err(e) => {
-                            return Err(e);
-                        }
-                    }
+            match args.spawn_actor_for_node(&actor_ref, node_id, node).await {
+                Ok(actor_id) => {
+                    // Creat a mapping from the actor ID to the node name in the Flow
+                    args.actor_node_mapping.insert(actor_id, node_id.clone());
                 }
+                Err(e) => return Err(e),
             }
         }
-
-        // For each Node, find its subset of connections and pass them to it upon construction
         Ok(args)
     }
     async fn on_stop(
@@ -95,26 +121,117 @@ impl Actor for Root {
         actor_ref: WeakActorRef<Self>,
         reason: ActorStopReason,
     ) -> Result<(), Self::Error> {
+        println!("Flow complete.");
         Ok(())
     }
 
-    // TODO: How does the Root node know how to shut down when all other nodes have finished?
-    // Do we try to use Linked Actors?
-}
-
-struct EdgeConnections<'a> {
-    mapping: Vec<(&'a Edge, Connection)>,
-}
-
-impl<'a> From<Vec<&'a Edge>> for EdgeConnections<'a> {
-    fn from(edges: Vec<&'a Edge>) -> Self {
-        EdgeConnections {
-            mapping: edges.iter().map(|&e| (e, e.to_connection())).collect(),
+    async fn on_link_died(
+        &mut self,
+        actor_ref: WeakActorRef<Self>,
+        id: ActorId,
+        reason: ActorStopReason,
+    ) -> Result<ControlFlow<ActorStopReason>, Self::Error> {
+        match reason {
+            ActorStopReason::Normal => match self.actor_node_mapping.remove(&id) {
+                Some(_) => {
+                    if self.actor_node_mapping.is_empty() {
+                        println!("No supervised actors are still active. Root will close...");
+                        actor_ref
+                            .upgrade()
+                            .unwrap()
+                            .stop_gracefully()
+                            .await
+                            .unwrap();
+                    }
+                    Ok(ControlFlow::Continue(()))
+                }
+                None => Err(format!(
+                    "supervised actor with id {} stopped but is not in root node mapping",
+                    id
+                )),
+            },
+            ActorStopReason::Killed => match self.actor_node_mapping.get(&id) {
+                Some(node_id) => {
+                    // Get the node from the flow
+                    if let Some(node) = self.flow.nodes.get(node_id) {
+                        println!("Node {} was killed. Restarting...", node.task_id);
+                        match self
+                            .spawn_actor_for_node(&actor_ref.upgrade().unwrap(), node_id, node)
+                            .await
+                        {
+                            Ok(actor_id) => {
+                                self.actor_node_mapping.insert(actor_id, node_id.clone());
+                                Ok(ControlFlow::Continue(()))
+                            }
+                            Err(e) => Err(e),
+                        }
+                    } else {
+                        Err(format!(
+                            "supervised actor with id {} stopped but is not in root node mapping",
+                            id
+                        ))
+                    }
+                }
+                None => Err(format!(
+                    "supervised actor with id {} stopped but is not in root node mapping",
+                    id
+                )),
+            },
+            ActorStopReason::LinkDied { id, reason } => {
+                println!("WARNING: Link with actor {} died with reason '{}'; actor is no longer supervised", id, reason);
+                Ok(ControlFlow::Continue(()))
+            }
+            // TODO: this is copied code from Killed above. Deduplicate?
+            ActorStopReason::Panicked(err) => match self.actor_node_mapping.get(&id) {
+                Some(node_id) => {
+                    // Get the node from the flow
+                    if let Some(node) = self.flow.nodes.get(node_id) {
+                        println!(
+                            "Node {} panicked with reason '{}'. Restarting...",
+                            err, node.task_id
+                        );
+                        match self
+                            .spawn_actor_for_node(&actor_ref.upgrade().unwrap(), node_id, node)
+                            .await
+                        {
+                            Ok(actor_id) => {
+                                self.actor_node_mapping.insert(actor_id, node_id.clone());
+                                Ok(ControlFlow::Continue(()))
+                            }
+                            Err(e) => Err(e),
+                        }
+                    } else {
+                        Err(format!(
+                            "supervised actor with id {} stopped but is not in root node mapping",
+                            id
+                        ))
+                    }
+                }
+                None => Err(format!(
+                    "supervised actor with id {} stopped but is not in root node mapping",
+                    id
+                )),
+            },
         }
     }
 }
 
-impl<'a> EdgeConnections<'a> {
+struct EdgeConnections {
+    mapping: Vec<(Edge, Connection)>,
+}
+
+impl From<Vec<Edge>> for EdgeConnections {
+    fn from(edges: Vec<Edge>) -> Self {
+        let mut mapping = vec![];
+        for edge in edges {
+            let conn = edge.to_connection();
+            mapping.push((edge, conn));
+        }
+        EdgeConnections { mapping }
+    }
+}
+
+impl EdgeConnections {
     pub fn outgoing_connections_from(&self, edge_node_id: &String) -> OutgoingConnections {
         let conns = self
             .mapping
