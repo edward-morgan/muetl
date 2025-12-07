@@ -1,10 +1,10 @@
 pub mod connection;
-pub mod daemon_actor;
 pub mod event;
 pub mod monitor_actor;
-pub mod node_actor;
+pub mod operator_actor;
 pub mod root;
 pub mod sink_actor;
+pub mod source_actor;
 
 use kameo::prelude::*;
 use std::{

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::messages::event::Event;
-use crate::task_defs::daemon::Daemon;
+use crate::task_defs::source::Source;
 use crate::task_defs::{
     ConfigField, MuetlContext, Output, OutputType, RegisteredType, TaskConfigTpl, TaskDef,
 };
@@ -80,7 +80,7 @@ impl Output<OwnedMessage> for KafkaConsumer {
 // }
 
 #[async_trait]
-impl Daemon for KafkaConsumer {
+impl Source for KafkaConsumer {
     async fn run(&mut self, ctx: &MuetlContext) {
         match self
             .consumer

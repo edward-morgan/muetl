@@ -6,27 +6,26 @@ use tokio::{
     select,
     sync::mpsc::{self},
 };
-use tokio_stream::StreamExt;
 
 use crate::{
     messages::{Status, StatusUpdate},
     runtime::connection::OutgoingConnections,
     system::util::new_id,
-    task_defs::{daemon::Daemon, MuetlContext},
+    task_defs::{source::Source, MuetlContext},
 };
 
-pub struct DaemonActor {
+pub struct SourceActor {
     id: u64,
-    daemon: Option<Box<dyn Daemon>>,
+    source: Option<Box<dyn Source>>,
     monitor_chan: ActorRef<PubSub<StatusUpdate>>,
     current_context: MuetlContext,
     /// A mapping of output conn_names to internal sender IDs.
     outgoing_connections: OutgoingConnections,
 }
 
-impl DaemonActor {
+impl SourceActor {
     pub fn new(
-        daemon: Option<Box<dyn Daemon>>,
+        source: Option<Box<dyn Source>>,
         monitor_chan: ActorRef<PubSub<StatusUpdate>>,
         outgoing_connections: OutgoingConnections,
     ) -> Self {
@@ -34,9 +33,9 @@ impl DaemonActor {
         let (results_tx, _) = mpsc::channel(1);
         let (status_tx, _) = mpsc::channel(1);
 
-        DaemonActor {
+        SourceActor {
             id: new_id(),
-            daemon,
+            source,
             monitor_chan,
             current_context: MuetlContext {
                 current_subscribers: HashMap::new(),
@@ -48,7 +47,7 @@ impl DaemonActor {
     }
 }
 
-impl Message<()> for DaemonActor {
+impl Message<()> for SourceActor {
     type Reply = ();
     async fn handle(
         &mut self,
@@ -58,17 +57,17 @@ impl Message<()> for DaemonActor {
         let (result_tx, mut result_rx) = mpsc::channel(100);
         let (status_tx, mut status_rx) = mpsc::channel(100);
 
-        // Create a context for the daemon to own
-        let daemon_context = MuetlContext {
+        // Create a context for the source to own
+        let source_context = MuetlContext {
             current_subscribers: self.current_context.current_subscribers.clone(),
             results: result_tx,
             status: status_tx,
         };
-        let mut daemon = self.daemon.take().unwrap();
+        let mut source = self.source.take().unwrap();
 
         let fut = tokio::spawn(async move {
-            daemon.run(&daemon_context).await;
-            daemon
+            source.run(&source_context).await;
+            source
         });
 
         let mut should_stop = false;
@@ -111,21 +110,21 @@ impl Message<()> for DaemonActor {
             }
         }
         if should_stop {
-            println!("Daemon is finished; exiting...");
+            println!("Source is finished; exiting...");
             self.outgoing_connections.broadcast_shutdown().await;
             ctx.stop();
         }
 
         match fut.await {
-            Ok(daemon) => {
-                // Replace the daemon
-                self.daemon = Some(daemon);
+            Ok(source) => {
+                // Replace the source
+                self.source = Some(source);
                 // Enqueue another iteration
                 ctx.actor_ref().tell(()).await.unwrap();
             }
             // Don't enqueue another iteration
             Err(e) => {
-                println!("Daemon task panicked: {:?}", e);
+                println!("Source task panicked: {:?}", e);
                 // Send a failure message to the monitor
                 self.monitor_chan
                     .tell(Publish(StatusUpdate {
@@ -141,11 +140,11 @@ impl Message<()> for DaemonActor {
     }
 }
 
-impl Actor for DaemonActor {
+impl Actor for SourceActor {
     type Args = Self;
     type Error = Infallible;
     async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        // Send a trigger message to kick off the daemon.
+        // Send a trigger message to kick off the source.
         actor_ref.tell(()).await.unwrap();
         Ok(args)
     }

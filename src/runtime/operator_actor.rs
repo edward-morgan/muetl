@@ -10,15 +10,15 @@ use crate::runtime::connection::{IncomingConnections, OutgoingConnections};
 use crate::{
     messages::{Status, StatusUpdate},
     runtime::event::InternalEvent,
-    task_defs::{node::Node, MuetlContext},
+    task_defs::{operator::Operator, MuetlContext},
     util::new_id,
 };
 
 use super::event::Payload;
 
-pub struct NodeActor {
+pub struct OperatorActor {
     id: u64,
-    node: Option<Box<dyn Node>>,
+    operator: Option<Box<dyn Operator>>,
     monitor_chan: ActorRef<PubSub<StatusUpdate>>,
     /// The mapping set by the system at runtime to tell this actor which
     /// input conn_name events with a given sender_id should go to.
@@ -28,17 +28,17 @@ pub struct NodeActor {
     outgoing_connections: OutgoingConnections,
 }
 
-impl NodeActor {
+impl OperatorActor {
     pub fn new(
-        node: Option<Box<dyn Node>>,
+        operator: Option<Box<dyn Operator>>,
         monitor_chan: ActorRef<PubSub<StatusUpdate>>,
         subscriptions: IncomingConnections,
         outgoing_connections: OutgoingConnections,
     ) -> Self {
         let incoming_sender_ids = subscriptions.incoming_sender_ids();
-        NodeActor {
+        OperatorActor {
             id: new_id(),
-            node,
+            operator,
             monitor_chan,
             subscriptions,
             active_subscriptions: incoming_sender_ids,
@@ -46,26 +46,26 @@ impl NodeActor {
         }
     }
 
-    /// Determines whether or not this Node should shut down, which relies on looking at each incoming connection
+    /// Determines whether or not this Operator should shut down, which relies on looking at each incoming connection
     /// and determining if any of them can potentially receive data.
     pub fn should_shut_down(&self) -> bool {
         self.active_subscriptions.is_empty()
     }
 }
 
-impl Message<Arc<SystemEvent>> for NodeActor {
+impl Message<Arc<SystemEvent>> for OperatorActor {
     type Reply = ();
     async fn handle(
         &mut self,
         _msg: Arc<SystemEvent>,
         ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        println!("NodeActor {} received shutdown signal", self.id);
+        println!("OperatorActor {} received shutdown signal", self.id);
         ctx.stop();
     }
 }
 
-impl Message<Arc<InternalEvent>> for NodeActor {
+impl Message<Arc<InternalEvent>> for OperatorActor {
     type Reply = ();
     async fn handle(
         &mut self,
@@ -78,7 +78,7 @@ impl Message<Arc<InternalEvent>> for NodeActor {
                 self.active_subscriptions.remove(&msg.sender_id);
                 // If no incoming connections are active, then stop the Actor.
                 if self.should_shut_down() {
-                    println!("No incoming connections are still active; Node will shut down.");
+                    println!("No incoming connections are still active; Operator will shut down.");
                     self.outgoing_connections.broadcast_shutdown().await;
                     ctx.stop();
                 }
@@ -90,19 +90,19 @@ impl Message<Arc<InternalEvent>> for NodeActor {
                         let (result_tx, mut result_rx) = mpsc::channel(100);
                         let (status_tx, mut status_rx) = mpsc::channel(100);
 
-                        let node_context = MuetlContext {
+                        let operator_context = MuetlContext {
                             current_subscribers: HashMap::new(),
                             results: result_tx,
                             status: status_tx,
                         };
 
-                        let mut node = self.node.take().unwrap();
+                        let mut operator = self.operator.take().unwrap();
                         let m = ev.clone();
                         let conn_name = input_conn_name.clone();
 
                         let fut = tokio::spawn(async move {
-                            node.handle_event_for_conn(&node_context, &conn_name, m).await;
-                            node
+                            operator.handle_event_for_conn(&operator_context, &conn_name, m).await;
+                            operator
                         });
 
                         let mut results_closed = false;
@@ -113,10 +113,10 @@ impl Message<Arc<InternalEvent>> for NodeActor {
                                 res = result_rx.recv(), if !results_closed => {
                                     match res {
                                         Some(result) => {
-                                            println!("Node received result {:?}", result);
+                                            println!("Operator received result {:?}", result);
                                             match self.outgoing_connections.publish_to(Arc::new(result)).await {
                                                 Ok(()) => {},
-                                                Err(reason) => println!("Node failed to produce events: {}", reason),
+                                                Err(reason) => println!("Operator failed to produce events: {}", reason),
                                             }
                                         },
                                         None => {
@@ -127,7 +127,7 @@ impl Message<Arc<InternalEvent>> for NodeActor {
                                 res = status_rx.recv(), if !status_closed => {
                                     match res {
                                         Some(status) => {
-                                            println!("Node received status {:?}", status);
+                                            println!("Operator received status {:?}", status);
                                             let update = StatusUpdate { status: status.clone(), id: self.id };
                                             self.monitor_chan.tell(Publish(update)).await.unwrap();
                                         },
@@ -144,11 +144,11 @@ impl Message<Arc<InternalEvent>> for NodeActor {
                         }
 
                         match fut.await {
-                            Ok(node) => {
-                                self.node = Some(node);
+                            Ok(operator) => {
+                                self.operator = Some(operator);
                             }
                             Err(e) => {
-                                println!("Node task panicked: {:?}", e);
+                                println!("Operator task panicked: {:?}", e);
                                 // Send a failure message to the monitor
                                 self.monitor_chan
                                     .tell(Publish(StatusUpdate {
@@ -169,7 +169,7 @@ impl Message<Arc<InternalEvent>> for NodeActor {
     }
 }
 
-impl Actor for NodeActor {
+impl Actor for OperatorActor {
     type Args = Self;
     type Error = String;
     async fn on_start(

@@ -12,9 +12,9 @@ use crate::{
 
 use super::{
     connection::{Connection, IncomingConnections, OutgoingConnections},
-    daemon_actor::DaemonActor,
-    node_actor::NodeActor,
+    operator_actor::OperatorActor,
     sink_actor::SinkActor,
+    source_actor::SourceActor,
     NegotiatedType,
 };
 
@@ -51,22 +51,22 @@ impl Root {
     }
 
     /// Partition nodes into layers by their role in the graph.
-    /// Returns layers in spawn order: sinks first, then nodes, then daemons.
+    /// Returns layers in spawn order: sinks first, then operators, then sources.
     /// This ensures consumers are subscribed before producers start.
     fn partition_nodes_by_layer(&self) -> Vec<Vec<String>> {
         let mut sinks = vec![];
-        let mut nodes = vec![];
-        let mut daemons = vec![];
+        let mut operators = vec![];
+        let mut sources = vec![];
 
         for (node_id, node) in &self.flow.nodes {
             match &node.info.as_ref().unwrap().info {
                 TaskDefInfo::SinkDef { .. } => sinks.push(node_id.clone()),
-                TaskDefInfo::NodeDef { .. } => nodes.push(node_id.clone()),
-                TaskDefInfo::DaemonDef { .. } => daemons.push(node_id.clone()),
+                TaskDefInfo::OperatorDef { .. } => operators.push(node_id.clone()),
+                TaskDefInfo::SourceDef { .. } => sources.push(node_id.clone()),
             }
         }
 
-        vec![sinks, nodes, daemons]
+        vec![sinks, operators, sources]
     }
 
     /// Given a node to spawn, build it, and return the actor's ID if successful.
@@ -77,17 +77,17 @@ impl Root {
         node: &Node,
     ) -> Result<ActorId, String> {
         match &node.info.as_ref().unwrap().info {
-            TaskDefInfo::DaemonDef {
+            TaskDefInfo::SourceDef {
                 outputs: _outputs,
-                build_daemon,
-            } => match build_daemon(&node.configuration) {
-                Ok(daemon) => {
-                    let r = DaemonActor::new(
-                        Some(daemon),
+                build_source,
+            } => match build_source(&node.configuration) {
+                Ok(source) => {
+                    let r = SourceActor::new(
+                        Some(source),
                         self.monitor_chan.clone(),
                         self.connections.outgoing_connections_from(&node_id),
                     );
-                    let r = DaemonActor::spawn_link(&actor_ref, r).await;
+                    let r = SourceActor::spawn_link(&actor_ref, r).await;
                     Ok(r.id())
                 }
                 Err(e) => {
@@ -111,19 +111,19 @@ impl Root {
                     return Err(e);
                 }
             },
-            TaskDefInfo::NodeDef {
+            TaskDefInfo::OperatorDef {
                 inputs: _inputs,
                 outputs: _outputs,
-                build_node,
-            } => match build_node(&node.configuration) {
-                Ok(node_impl) => {
-                    let r = NodeActor::new(
-                        Some(node_impl),
+                build_operator,
+            } => match build_operator(&node.configuration) {
+                Ok(operator) => {
+                    let r = OperatorActor::new(
+                        Some(operator),
                         self.monitor_chan.clone(),
                         self.connections.incoming_connections_to(node_id),
                         self.connections.outgoing_connections_from(node_id),
                     );
-                    let r = NodeActor::spawn_link(&actor_ref, r).await;
+                    let r = OperatorActor::spawn_link(&actor_ref, r).await;
                     Ok(r.id())
                 }
                 Err(e) => {

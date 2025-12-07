@@ -1,9 +1,9 @@
 //! Test task definitions for integration tests.
 //!
 //! This module provides simple task definitions useful for testing:
-//! - `NumberSource`: A Daemon that emits a configurable sequence of numbers
-//! - `Adder`: A Node that adds a constant to each input number
-//! - `Multiplier`: A Node that multiplies each input number by a constant
+//! - `NumberSource`: A Source that emits a configurable sequence of numbers
+//! - `Adder`: An Operator that adds a constant to each input number
+//! - `Multiplier`: An Operator that multiplies each input number by a constant
 //! - `ResultCollector`: A Sink that collects results for assertion
 
 use std::{collections::HashMap, sync::Arc};
@@ -12,12 +12,12 @@ use async_trait::async_trait;
 use muetl::{
     messages::event::Event,
     task_defs::{
-        daemon::Daemon, node::Node, sink::Sink, MuetlContext, MuetlSinkContext, TaskConfig, TaskDef,
+        operator::Operator, sink::Sink, source::Source, MuetlContext, MuetlSinkContext, TaskConfig, TaskDef,
     },
 };
 
 // ----------------------------------------------------------------------------
-// NumberSource - A Daemon that emits numbers
+// NumberSource - A Source that emits numbers
 // ----------------------------------------------------------------------------
 
 pub struct NumberSource {
@@ -26,7 +26,7 @@ pub struct NumberSource {
 }
 
 impl NumberSource {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Daemon>, String> {
+    pub fn new(config: &TaskConfig) -> Result<Box<dyn Source>, String> {
         let max = config
             .get("count")
             .and_then(config_value_to_i64)
@@ -38,7 +38,7 @@ impl NumberSource {
 impl TaskDef for NumberSource {}
 
 #[async_trait]
-impl Daemon for NumberSource {
+impl Source for NumberSource {
     async fn run(&mut self, ctx: &MuetlContext) {
         if self.current >= self.max {
             ctx.status
@@ -61,7 +61,7 @@ impl Daemon for NumberSource {
 }
 
 // ----------------------------------------------------------------------------
-// Adder - A Node that adds a constant to input numbers
+// Adder - An Operator that adds a constant to input numbers
 // ----------------------------------------------------------------------------
 
 pub struct Adder {
@@ -69,7 +69,7 @@ pub struct Adder {
 }
 
 impl Adder {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Node>, String> {
+    pub fn new(config: &TaskConfig) -> Result<Box<dyn Operator>, String> {
         let addend = config
             .get("addend")
             .and_then(config_value_to_i64)
@@ -81,7 +81,7 @@ impl Adder {
 impl TaskDef for Adder {}
 
 #[async_trait]
-impl Node for Adder {
+impl Operator for Adder {
     async fn handle_event_for_conn(
         &mut self,
         ctx: &MuetlContext,
@@ -106,7 +106,7 @@ impl Node for Adder {
 }
 
 // ----------------------------------------------------------------------------
-// Multiplier - A Node that multiplies input numbers by a constant
+// Multiplier - An Operator that multiplies input numbers by a constant
 // ----------------------------------------------------------------------------
 
 pub struct Multiplier {
@@ -114,7 +114,7 @@ pub struct Multiplier {
 }
 
 impl Multiplier {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Node>, String> {
+    pub fn new(config: &TaskConfig) -> Result<Box<dyn Operator>, String> {
         let factor = config
             .get("factor")
             .and_then(config_value_to_i64)
@@ -126,7 +126,7 @@ impl Multiplier {
 impl TaskDef for Multiplier {}
 
 #[async_trait]
-impl Node for Multiplier {
+impl Operator for Multiplier {
     async fn handle_event_for_conn(
         &mut self,
         ctx: &MuetlContext,

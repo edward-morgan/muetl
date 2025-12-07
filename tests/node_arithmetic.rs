@@ -1,7 +1,7 @@
-//! Integration tests for Node arithmetic operations.
+//! Integration tests for Operator arithmetic operations.
 //!
 //! These tests validate end-to-end flows using:
-//! - NumberSource (Daemon) -> Adder/Multiplier (Node) -> ResultCollector (Sink)
+//! - NumberSource (Source) -> Adder/Multiplier (Operator) -> ResultCollector (Sink)
 
 mod common;
 
@@ -22,19 +22,19 @@ use common::task_defs::{Adder, Multiplier, NumberSource, ResultCollector};
 fn create_test_registry() -> Registry {
     let mut registry = Registry::new();
 
-    // NumberSource daemon
+    // NumberSource source
     let mut number_source_outputs = HashMap::new();
     number_source_outputs.insert("output".to_string(), vec![TypeId::of::<i64>()]);
     registry.add_def(TaskInfo {
         task_id: "number_source".to_string(),
         config_tpl: None,
-        info: TaskDefInfo::DaemonDef {
+        info: TaskDefInfo::SourceDef {
             outputs: number_source_outputs,
-            build_daemon: NumberSource::new,
+            build_source: NumberSource::new,
         },
     });
 
-    // Adder node
+    // Adder operator
     let mut adder_inputs = HashMap::new();
     adder_inputs.insert("input".to_string(), vec![TypeId::of::<i64>()]);
     let mut adder_outputs = HashMap::new();
@@ -42,14 +42,14 @@ fn create_test_registry() -> Registry {
     registry.add_def(TaskInfo {
         task_id: "adder".to_string(),
         config_tpl: None,
-        info: TaskDefInfo::NodeDef {
+        info: TaskDefInfo::OperatorDef {
             inputs: adder_inputs,
             outputs: adder_outputs,
-            build_node: Adder::new,
+            build_operator: Adder::new,
         },
     });
 
-    // Multiplier node
+    // Multiplier operator
     let mut multiplier_inputs = HashMap::new();
     multiplier_inputs.insert("input".to_string(), vec![TypeId::of::<i64>()]);
     let mut multiplier_outputs = HashMap::new();
@@ -57,10 +57,10 @@ fn create_test_registry() -> Registry {
     registry.add_def(TaskInfo {
         task_id: "multiplier".to_string(),
         config_tpl: None,
-        info: TaskDefInfo::NodeDef {
+        info: TaskDefInfo::OperatorDef {
             inputs: multiplier_inputs,
             outputs: multiplier_outputs,
-            build_node: Multiplier::new,
+            build_operator: Multiplier::new,
         },
     });
 
@@ -79,9 +79,9 @@ fn create_test_registry() -> Registry {
     registry
 }
 
-/// Test 1: Basic Node passthrough
+/// Test 1: Basic Operator passthrough
 /// Flow: NumberSource -> Adder(+0) -> ResultCollector
-/// Validates that a Node correctly receives events and forwards them downstream.
+/// Validates that an Operator correctly receives events and forwards them downstream.
 #[tokio::test]
 async fn test_basic_node_passthrough() {
     ResultCollector::clear_all();
@@ -149,9 +149,9 @@ async fn test_basic_node_passthrough() {
     assert_eq!(sorted_results, vec![0, 1, 2, 3, 4], "Expected [0,1,2,3,4], got {:?}", sorted_results);
 }
 
-/// Test 2: Single Node transformation
+/// Test 2: Single Operator transformation
 /// Flow: NumberSource -> Adder(+10) -> ResultCollector
-/// Validates that a Node actually transforms data.
+/// Validates that an Operator actually transforms data.
 #[tokio::test]
 async fn test_single_node_transformation() {
     ResultCollector::clear_all();
@@ -216,9 +216,9 @@ async fn test_single_node_transformation() {
     assert_eq!(sorted_results, vec![10, 11, 12, 13, 14], "Expected [10,11,12,13,14], got {:?}", sorted_results);
 }
 
-/// Test 3: Chained Nodes
+/// Test 3: Chained Operators
 /// Flow: NumberSource -> Adder(+5) -> Multiplier(*2) -> ResultCollector
-/// Validates that Nodes can be chained together.
+/// Validates that Operators can be chained together.
 /// NumberSource emits 0,1,2,3,4 → Adder produces 5,6,7,8,9 → Multiplier produces 10,12,14,16,18
 #[tokio::test]
 async fn test_chained_nodes() {
@@ -298,10 +298,10 @@ async fn test_chained_nodes() {
     assert_eq!(sorted_results, vec![10, 12, 14, 16, 18], "Expected [10,12,14,16,18], got {:?}", sorted_results);
 }
 
-/// Test 4: Fan-out from Node
+/// Test 4: Fan-out from Operator
 /// Flow: NumberSource -> Adder(+1) -> ResultCollector("a")
 ///                               \-> ResultCollector("b")
-/// Validates that a Node's output can be sent to multiple downstream Sinks.
+/// Validates that an Operator's output can be sent to multiple downstream Sinks.
 #[tokio::test]
 async fn test_fan_out_from_node() {
     ResultCollector::clear_all();
@@ -387,10 +387,10 @@ async fn test_fan_out_from_node() {
     assert_eq!(sorted_b, vec![1, 2, 3, 4, 5], "Expected [1,2,3,4,5] in collector_b, got {:?}", sorted_b);
 }
 
-/// Test 5: Fan-in to Node
+/// Test 5: Fan-in to Operator
 /// Flow: NumberSource("src1", count=3) -> Adder(+100) -> ResultCollector
 ///       NumberSource("src2", count=3) -/
-/// Validates that a Node can receive events from multiple upstream Daemons.
+/// Validates that an Operator can receive events from multiple upstream Sources.
 #[tokio::test]
 async fn test_fan_in_to_node() {
     ResultCollector::clear_all();
@@ -474,7 +474,7 @@ async fn test_fan_in_to_node() {
 /// Test 6: Mixed pipeline
 /// Flow: NumberSource -> Adder -> Multiplier -> ResultCollector("transformed")
 ///                   \-> ResultCollector("raw")
-/// Validates a complex topology where the same Daemon feeds both a Node chain and a direct Sink.
+/// Validates a complex topology where the same Source feeds both an Operator chain and a direct Sink.
 #[tokio::test]
 async fn test_mixed_pipeline() {
     ResultCollector::clear_all();

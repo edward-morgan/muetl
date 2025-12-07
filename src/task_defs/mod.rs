@@ -1,5 +1,4 @@
-pub mod daemon;
-pub mod node;
+pub mod operator;
 pub mod sink;
 pub mod source;
 

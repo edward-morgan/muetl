@@ -42,9 +42,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ],
             disallow_unknown_fields: true,
         }),
-        info: TaskDefInfo::DaemonDef {
+        info: TaskDefInfo::SourceDef {
             outputs: ticker_outputs,
-            build_daemon: Ticker::new,
+            build_source: Ticker::new,
         },
     });
 
