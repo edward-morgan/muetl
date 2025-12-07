@@ -23,7 +23,6 @@ use muetl::{
 pub struct NumberSource {
     current: i64,
     max: i64,
-    started: bool,
 }
 
 impl NumberSource {
@@ -32,11 +31,7 @@ impl NumberSource {
             .get("count")
             .and_then(config_value_to_i64)
             .unwrap_or(5);
-        Ok(Box::new(NumberSource {
-            current: 0,
-            max,
-            started: false,
-        }))
+        Ok(Box::new(NumberSource { current: 0, max }))
     }
 }
 
@@ -45,15 +40,7 @@ impl TaskDef for NumberSource {}
 #[async_trait]
 impl Daemon for NumberSource {
     async fn run(&mut self, ctx: &MuetlContext) {
-        // On first run, wait briefly to allow downstream actors to subscribe
-        if !self.started {
-            self.started = true;
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-
         if self.current >= self.max {
-            // Wait for downstream to finish processing before signaling done
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             ctx.status
                 .send(muetl::messages::Status::Finished)
                 .await
@@ -69,8 +56,6 @@ impl Daemon for NumberSource {
                 .await
                 .unwrap();
             self.current += 1;
-            // Small delay to allow downstream processing before next event
-            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
     }
 }

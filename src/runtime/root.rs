@@ -50,6 +50,25 @@ impl Root {
         }
     }
 
+    /// Partition nodes into layers by their role in the graph.
+    /// Returns layers in spawn order: sinks first, then nodes, then daemons.
+    /// This ensures consumers are subscribed before producers start.
+    fn partition_nodes_by_layer(&self) -> Vec<Vec<String>> {
+        let mut sinks = vec![];
+        let mut nodes = vec![];
+        let mut daemons = vec![];
+
+        for (node_id, node) in &self.flow.nodes {
+            match &node.info.as_ref().unwrap().info {
+                TaskDefInfo::SinkDef { .. } => sinks.push(node_id.clone()),
+                TaskDefInfo::NodeDef { .. } => nodes.push(node_id.clone()),
+                TaskDefInfo::DaemonDef { .. } => daemons.push(node_id.clone()),
+            }
+        }
+
+        vec![sinks, nodes, daemons]
+    }
+
     /// Given a node to spawn, build it, and return the actor's ID if successful.
     async fn spawn_actor_for_node(
         &self,
@@ -121,18 +140,31 @@ impl Actor for Root {
 
     /// On startup, the root should instantiate supervised actors for each of the Nodes in the validated Flow it
     /// receives when constructed.
+    ///
+    /// Actors are spawned in topological order: sinks first, then nodes, then daemons.
+    /// This ensures that consumers are subscribed to PubSub channels before producers
+    /// start emitting events, preventing race conditions where events are lost.
     async fn on_start(
         mut args: Self::Args,
         actor_ref: ActorRef<Self>,
     ) -> Result<Self, Self::Error> {
-        for (node_id, node) in &args.flow.nodes {
-            match args.spawn_actor_for_node(&actor_ref, node_id, node).await {
-                Ok(actor_id) => {
-                    // Creat a mapping from the actor ID to the node name in the Flow
-                    args.actor_node_mapping.insert(actor_id, node_id.clone());
+        // Collect layers into owned data to avoid borrow conflicts
+        let layers = args.partition_nodes_by_layer();
+
+        // Spawn in order: sinks, then nodes, then daemons
+        for layer in layers {
+            for node_id in layer {
+                let node = args.flow.nodes.get(&node_id).unwrap();
+                match args.spawn_actor_for_node(&actor_ref, &node_id, node).await {
+                    Ok(actor_id) => {
+                        // Create a mapping from the actor ID to the node name in the Flow
+                        args.actor_node_mapping.insert(actor_id, node_id);
+                    }
+                    Err(e) => return Err(e),
                 }
-                Err(e) => return Err(e),
             }
+            // Yield to allow subscriptions to complete before spawning the next layer
+            tokio::task::yield_now().await;
         }
         Ok(args)
     }
