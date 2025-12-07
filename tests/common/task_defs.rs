@@ -222,20 +222,20 @@ impl Sink for ResultCollector {
 }
 
 // ----------------------------------------------------------------------------
-// Helper for extracting i64 from TaskConfigValue
+// Helper for extracting i64 from ConfigValue
 // ----------------------------------------------------------------------------
 
-fn config_value_to_i64(value: &muetl::task_defs::TaskConfigValue) -> Option<i64> {
+fn config_value_to_i64(value: &muetl::task_defs::ConfigValue) -> Option<i64> {
     match value {
-        muetl::task_defs::TaskConfigValue::Int(i) => Some(*i),
-        muetl::task_defs::TaskConfigValue::Uint(u) => Some(*u as i64),
+        muetl::task_defs::ConfigValue::Int(i) => Some(*i),
+        muetl::task_defs::ConfigValue::Uint(u) => Some(*u as i64),
         _ => None,
     }
 }
 
-fn config_value_to_string(value: &muetl::task_defs::TaskConfigValue) -> Option<String> {
+fn config_value_to_string(value: &muetl::task_defs::ConfigValue) -> Option<String> {
     match value {
-        muetl::task_defs::TaskConfigValue::Str(s) => Some(s.clone()),
+        muetl::task_defs::ConfigValue::Str(s) => Some(s.clone()),
         _ => None,
     }
 }

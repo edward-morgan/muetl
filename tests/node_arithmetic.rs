@@ -13,7 +13,7 @@ use muetl::{
     flow::{Edge, Flow, Node, NodeRef, RawFlow},
     registry::{Registry, TaskDefInfo, TaskInfo},
     runtime::root::Root,
-    task_defs::TaskConfigValue,
+    task_defs::ConfigValue,
 };
 
 use common::task_defs::{Adder, Multiplier, NumberSource, ResultCollector};
@@ -90,15 +90,15 @@ async fn test_basic_node_passthrough() {
 
     // NumberSource config: emit 5 numbers (0..5)
     let mut src_config = HashMap::new();
-    src_config.insert("count".to_string(), TaskConfigValue::Int(5));
+    src_config.insert("count".to_string(), ConfigValue::Int(5));
 
     // Adder config: add 0 (passthrough)
     let mut adder_config = HashMap::new();
-    adder_config.insert("addend".to_string(), TaskConfigValue::Int(0));
+    adder_config.insert("addend".to_string(), ConfigValue::Int(0));
 
     // ResultCollector config
     let mut collector_config = HashMap::new();
-    collector_config.insert("name".to_string(), TaskConfigValue::Str("test1".to_string()));
+    collector_config.insert("name".to_string(), ConfigValue::Str("test1".to_string()));
 
     let raw_flow = RawFlow {
         nodes: vec![
@@ -159,13 +159,13 @@ async fn test_single_node_transformation() {
     let registry = create_test_registry();
 
     let mut src_config = HashMap::new();
-    src_config.insert("count".to_string(), TaskConfigValue::Int(5));
+    src_config.insert("count".to_string(), ConfigValue::Int(5));
 
     let mut adder_config = HashMap::new();
-    adder_config.insert("addend".to_string(), TaskConfigValue::Int(10));
+    adder_config.insert("addend".to_string(), ConfigValue::Int(10));
 
     let mut collector_config = HashMap::new();
-    collector_config.insert("name".to_string(), TaskConfigValue::Str("test2".to_string()));
+    collector_config.insert("name".to_string(), ConfigValue::Str("test2".to_string()));
 
     let raw_flow = RawFlow {
         nodes: vec![
@@ -227,16 +227,16 @@ async fn test_chained_nodes() {
     let registry = create_test_registry();
 
     let mut src_config = HashMap::new();
-    src_config.insert("count".to_string(), TaskConfigValue::Int(5));
+    src_config.insert("count".to_string(), ConfigValue::Int(5));
 
     let mut adder_config = HashMap::new();
-    adder_config.insert("addend".to_string(), TaskConfigValue::Int(5));
+    adder_config.insert("addend".to_string(), ConfigValue::Int(5));
 
     let mut multiplier_config = HashMap::new();
-    multiplier_config.insert("factor".to_string(), TaskConfigValue::Int(2));
+    multiplier_config.insert("factor".to_string(), ConfigValue::Int(2));
 
     let mut collector_config = HashMap::new();
-    collector_config.insert("name".to_string(), TaskConfigValue::Str("test3".to_string()));
+    collector_config.insert("name".to_string(), ConfigValue::Str("test3".to_string()));
 
     let raw_flow = RawFlow {
         nodes: vec![
@@ -309,16 +309,16 @@ async fn test_fan_out_from_node() {
     let registry = create_test_registry();
 
     let mut src_config = HashMap::new();
-    src_config.insert("count".to_string(), TaskConfigValue::Int(5));
+    src_config.insert("count".to_string(), ConfigValue::Int(5));
 
     let mut adder_config = HashMap::new();
-    adder_config.insert("addend".to_string(), TaskConfigValue::Int(1));
+    adder_config.insert("addend".to_string(), ConfigValue::Int(1));
 
     let mut collector_a_config = HashMap::new();
-    collector_a_config.insert("name".to_string(), TaskConfigValue::Str("fan_out_a".to_string()));
+    collector_a_config.insert("name".to_string(), ConfigValue::Str("fan_out_a".to_string()));
 
     let mut collector_b_config = HashMap::new();
-    collector_b_config.insert("name".to_string(), TaskConfigValue::Str("fan_out_b".to_string()));
+    collector_b_config.insert("name".to_string(), ConfigValue::Str("fan_out_b".to_string()));
 
     let raw_flow = RawFlow {
         nodes: vec![
@@ -398,16 +398,16 @@ async fn test_fan_in_to_node() {
     let registry = create_test_registry();
 
     let mut src1_config = HashMap::new();
-    src1_config.insert("count".to_string(), TaskConfigValue::Int(3));
+    src1_config.insert("count".to_string(), ConfigValue::Int(3));
 
     let mut src2_config = HashMap::new();
-    src2_config.insert("count".to_string(), TaskConfigValue::Int(3));
+    src2_config.insert("count".to_string(), ConfigValue::Int(3));
 
     let mut adder_config = HashMap::new();
-    adder_config.insert("addend".to_string(), TaskConfigValue::Int(100));
+    adder_config.insert("addend".to_string(), ConfigValue::Int(100));
 
     let mut collector_config = HashMap::new();
-    collector_config.insert("name".to_string(), TaskConfigValue::Str("fan_in".to_string()));
+    collector_config.insert("name".to_string(), ConfigValue::Str("fan_in".to_string()));
 
     let raw_flow = RawFlow {
         nodes: vec![
@@ -482,19 +482,19 @@ async fn test_mixed_pipeline() {
     let registry = create_test_registry();
 
     let mut src_config = HashMap::new();
-    src_config.insert("count".to_string(), TaskConfigValue::Int(5));
+    src_config.insert("count".to_string(), ConfigValue::Int(5));
 
     let mut adder_config = HashMap::new();
-    adder_config.insert("addend".to_string(), TaskConfigValue::Int(10));
+    adder_config.insert("addend".to_string(), ConfigValue::Int(10));
 
     let mut multiplier_config = HashMap::new();
-    multiplier_config.insert("factor".to_string(), TaskConfigValue::Int(3));
+    multiplier_config.insert("factor".to_string(), ConfigValue::Int(3));
 
     let mut transformed_config = HashMap::new();
-    transformed_config.insert("name".to_string(), TaskConfigValue::Str("transformed".to_string()));
+    transformed_config.insert("name".to_string(), ConfigValue::Str("transformed".to_string()));
 
     let mut raw_config = HashMap::new();
-    raw_config.insert("name".to_string(), TaskConfigValue::Str("raw".to_string()));
+    raw_config.insert("name".to_string(), ConfigValue::Str("raw".to_string()));
 
     let raw_flow = RawFlow {
         nodes: vec![

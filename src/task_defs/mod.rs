@@ -4,7 +4,7 @@ pub mod source;
 
 use std::{
     any::{Any, TypeId},
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Debug,
 };
 
@@ -163,71 +163,226 @@ pub struct TaskConfigTpl {
     /// processing will return an error.
     pub disallow_unknown_fields: bool,
 }
+
+impl TaskConfigTpl {
+    /// Validate raw config values against this template, returning a TaskConfig
+    /// with defaults applied, or a list of validation errors.
+    pub fn validate(&self, raw: HashMap<String, ConfigValue>) -> Result<TaskConfig, Vec<String>> {
+        let mut errors = vec![];
+        let mut values = HashMap::new();
+
+        // Check each declared field
+        for field in &self.fields {
+            match raw.get(&field.name) {
+                Some(value) => {
+                    // Type check
+                    if !field.field_type.matches(value) {
+                        errors.push(format!(
+                            "field '{}': expected {:?}, got {:?}",
+                            field.name,
+                            field.field_type,
+                            value.config_type()
+                        ));
+                    } else {
+                        values.insert(field.name.clone(), value.clone());
+                    }
+                }
+                None if field.required => {
+                    errors.push(format!("missing required field '{}'", field.name));
+                }
+                None => {
+                    // Apply default if present
+                    if let Some(default) = &field.default {
+                        values.insert(field.name.clone(), default.clone());
+                    }
+                }
+            }
+        }
+
+        // Check for unknown fields
+        if self.disallow_unknown_fields {
+            let known: HashSet<_> = self.fields.iter().map(|f| &f.name).collect();
+            for key in raw.keys() {
+                if !known.contains(key) {
+                    errors.push(format!("unknown field '{}'", key));
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(TaskConfig::new(values))
+        } else {
+            Err(errors)
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct ConfigField {
     pub name: String,
+    pub field_type: ConfigType,
     pub required: bool,
-    pub default_value: Option<TaskConfigValue>,
+    pub default: Option<ConfigValue>,
 }
+
 impl ConfigField {
-    pub fn required(name: &str) -> ConfigField {
+    pub fn required(name: &str, field_type: ConfigType) -> Self {
         ConfigField {
             name: name.to_string(),
+            field_type,
             required: true,
-            default_value: None,
+            default: None,
         }
     }
-    pub fn optional_with_default(name: &str, default_value: TaskConfigValue) -> ConfigField {
+
+    pub fn optional(name: &str, field_type: ConfigType) -> Self {
         ConfigField {
             name: name.to_string(),
+            field_type,
             required: false,
-            default_value: Some(default_value),
+            default: None,
         }
     }
-    pub fn optional(name: &str) -> ConfigField {
+
+    pub fn with_default(name: &str, default: ConfigValue) -> Self {
         ConfigField {
             name: name.to_string(),
+            field_type: default.config_type(),
             required: false,
-            default_value: None,
+            default: Some(default),
         }
     }
 }
 
-/// The runtime configuration passed to a TaskDef that represents a processed version
-/// of the TaskConfigTpl it exposes.
-pub type TaskConfig = HashMap<String, TaskConfigValue>;
-// TODO: make TaskConfig a struct so we can override get() with a better version, to prevent having to double-unwrap()
-//
-// TODO: the usage semantics here aren't very good - is there a better way to do things? Can TaskDefs define their own configuration structs? Is there a crate that does this?
+/// The expected type of a configuration field
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConfigType {
+    Str,
+    Int,
+    Uint,
+    Bool,
+    Arr(Box<ConfigType>),
+    Map(Box<ConfigType>),
+    Any,
+}
 
-#[derive(Debug)]
-pub enum TaskConfigValue {
+impl ConfigType {
+    /// Check if a value matches this type
+    pub fn matches(&self, value: &ConfigValue) -> bool {
+        match (self, value) {
+            (ConfigType::Any, _) => true,
+            (ConfigType::Str, ConfigValue::Str(_)) => true,
+            (ConfigType::Int, ConfigValue::Int(_)) => true,
+            (ConfigType::Uint, ConfigValue::Uint(_)) => true,
+            (ConfigType::Bool, ConfigValue::Bool(_)) => true,
+            (ConfigType::Arr(inner), ConfigValue::Arr(items)) => {
+                items.iter().all(|item| inner.matches(item))
+            }
+            (ConfigType::Map(inner), ConfigValue::Map(map)) => {
+                map.values().all(|v| inner.matches(v))
+            }
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ConfigValue {
     Str(String),
     Int(i64),
     Uint(u64),
     Bool(bool),
-    Arr(Vec<TaskConfigValue>),
-    Map(HashMap<String, TaskConfigValue>),
+    Arr(Vec<ConfigValue>),
+    Map(HashMap<String, ConfigValue>),
 }
 
-impl TryFrom<&TaskConfigValue> for u64 {
-    type Error = String;
-    fn try_from(value: &TaskConfigValue) -> Result<Self, Self::Error> {
-        if let TaskConfigValue::Uint(u) = value {
-            Ok(*u)
-        } else {
-            Err(format!("cannot turn value into u64"))
+impl ConfigValue {
+    /// Returns the ConfigType that matches this value
+    pub fn config_type(&self) -> ConfigType {
+        match self {
+            Self::Str(_) => ConfigType::Str,
+            Self::Int(_) => ConfigType::Int,
+            Self::Uint(_) => ConfigType::Uint,
+            Self::Bool(_) => ConfigType::Bool,
+            Self::Arr(v) => {
+                let inner = v.first().map(|e| e.config_type()).unwrap_or(ConfigType::Any);
+                ConfigType::Arr(Box::new(inner))
+            }
+            Self::Map(m) => {
+                let inner = m.values().next().map(|e| e.config_type()).unwrap_or(ConfigType::Any);
+                ConfigType::Map(Box::new(inner))
+            }
         }
     }
 }
-impl TryFrom<&TaskConfigValue> for String {
-    type Error = String;
-    fn try_from(value: &TaskConfigValue) -> Result<Self, Self::Error> {
-        if let TaskConfigValue::Str(s) = value {
-            Ok(s.clone())
-        } else {
-            Err(format!("cannot turn value into String"))
+
+/// Resolved configuration for a TaskDef instance
+#[derive(Debug)]
+pub struct TaskConfig {
+    values: HashMap<String, ConfigValue>,
+}
+
+impl TaskConfig {
+    pub fn new(values: HashMap<String, ConfigValue>) -> Self {
+        Self { values }
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            values: HashMap::new(),
         }
+    }
+
+    pub fn get(&self, key: &str) -> Option<&ConfigValue> {
+        self.values.get(key)
+    }
+
+    pub fn get_str(&self, key: &str) -> Option<&str> {
+        match self.values.get(key)? {
+            ConfigValue::Str(s) => Some(s.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn get_u64(&self, key: &str) -> Option<u64> {
+        match self.values.get(key)? {
+            ConfigValue::Uint(n) => Some(*n),
+            _ => None,
+        }
+    }
+
+    pub fn get_i64(&self, key: &str) -> Option<i64> {
+        match self.values.get(key)? {
+            ConfigValue::Int(n) => Some(*n),
+            _ => None,
+        }
+    }
+
+    pub fn get_bool(&self, key: &str) -> Option<bool> {
+        match self.values.get(key)? {
+            ConfigValue::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    pub fn require_str(&self, key: &str) -> &str {
+        self.get_str(key)
+            .unwrap_or_else(|| panic!("missing or invalid config key: {}", key))
+    }
+
+    pub fn require_u64(&self, key: &str) -> u64 {
+        self.get_u64(key)
+            .unwrap_or_else(|| panic!("missing or invalid config key: {}", key))
+    }
+
+    pub fn require_i64(&self, key: &str) -> i64 {
+        self.get_i64(key)
+            .unwrap_or_else(|| panic!("missing or invalid config key: {}", key))
+    }
+
+    pub fn require_bool(&self, key: &str) -> bool {
+        self.get_bool(key)
+            .unwrap_or_else(|| panic!("missing or invalid config key: {}", key))
     }
 }
 

@@ -3,7 +3,7 @@ use std::{any::TypeId, collections::HashMap, fmt::Display, hash::Hash, sync::Arc
 use crate::{
     registry::{Registry, TaskDefInfo, TaskInfo},
     runtime::{connection::Connection, NegotiatedType},
-    task_defs::TaskConfig,
+    task_defs::ConfigValue,
 };
 
 type ValidationResult = Result<(), Vec<String>>;
@@ -198,10 +198,10 @@ pub struct Node {
     pub node_id: String,
     /// The identifier of the Task that this Node coresponds to.
     pub task_id: String,
-    /// The runtime configuration being supplied to this Node. Note that this will be
-    /// checked at runtime against the template advertised by the Node, and an error
+    /// The raw runtime configuration being supplied to this Node. Note that this will be
+    /// validated at runtime against the template advertised by the Node, and an error
     /// may be returned if the provided configuration does not match what is required.
-    pub configuration: TaskConfig,
+    pub configuration: HashMap<String, ConfigValue>,
     /// Not parsed from a RawFlow; created in the process of validation by a Root actor.
     pub info: Option<Arc<TaskInfo>>,
 }

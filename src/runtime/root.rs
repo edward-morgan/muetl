@@ -7,6 +7,7 @@ use crate::{
     flow::{Edge, Flow, Node, NodeRef},
     messages::StatusUpdate,
     registry::{Registry, TaskDefInfo, TaskInfo},
+    task_defs::TaskConfig,
     util::new_id,
 };
 
@@ -69,6 +70,18 @@ impl Root {
         vec![sinks, operators, sources]
     }
 
+    /// Validate and resolve configuration for a node against its template.
+    /// If the node has no config template, passes through the raw config values.
+    fn resolve_config(&self, node: &Node) -> Result<TaskConfig, String> {
+        let task_info = node.info.as_ref().unwrap();
+        match &task_info.config_tpl {
+            Some(tpl) => tpl
+                .validate(node.configuration.clone())
+                .map_err(|errors| errors.join("; ")),
+            None => Ok(TaskConfig::new(node.configuration.clone())),
+        }
+    }
+
     /// Given a node to spawn, build it, and return the actor's ID if successful.
     async fn spawn_actor_for_node(
         &self,
@@ -76,11 +89,13 @@ impl Root {
         node_id: &String,
         node: &Node,
     ) -> Result<ActorId, String> {
+        let config = self.resolve_config(node)?;
+
         match &node.info.as_ref().unwrap().info {
             TaskDefInfo::SourceDef {
                 outputs: _outputs,
                 build_source,
-            } => match build_source(&node.configuration) {
+            } => match build_source(&config) {
                 Ok(source) => {
                     let r = SourceActor::new(
                         Some(source),
@@ -97,7 +112,7 @@ impl Root {
             TaskDefInfo::SinkDef {
                 inputs: _inputs,
                 build_sink,
-            } => match build_sink(&node.configuration) {
+            } => match build_sink(&config) {
                 Ok(sink) => {
                     let r = SinkActor::new(
                         Some(sink),
@@ -115,7 +130,7 @@ impl Root {
                 inputs: _inputs,
                 outputs: _outputs,
                 build_operator,
-            } => match build_operator(&node.configuration) {
+            } => match build_operator(&config) {
                 Ok(operator) => {
                     let r = OperatorActor::new(
                         Some(operator),

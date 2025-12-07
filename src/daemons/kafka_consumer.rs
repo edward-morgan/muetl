@@ -6,7 +6,8 @@ use std::time::Duration;
 use crate::messages::event::Event;
 use crate::task_defs::source::Source;
 use crate::task_defs::{
-    ConfigField, MuetlContext, Output, OutputType, RegisteredType, TaskConfigTpl, TaskDef,
+    ConfigField, ConfigType, MuetlContext, Output, OutputType, RegisteredType, TaskConfigTpl,
+    TaskDef,
 };
 use async_trait::async_trait;
 use rdkafka::consumer::BaseConsumer;
@@ -48,8 +49,8 @@ impl TaskDef for KafkaConsumer {
     fn task_config_tpl(&self) -> Option<crate::task_defs::TaskConfigTpl> {
         Some(TaskConfigTpl {
             fields: vec![
-                ConfigField::required("bootstrap.servers"),
-                ConfigField::required("input.topic"),
+                ConfigField::required("bootstrap.servers", ConfigType::Str),
+                ConfigField::required("input.topic", ConfigType::Str),
             ],
             disallow_unknown_fields: false,
         })

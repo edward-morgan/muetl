@@ -9,7 +9,7 @@ use muetl::{
     runtime::root::Root,
     sinks::log_sink::LogSink,
     system::*,
-    task_defs::{ConfigField, TaskConfigTpl, TaskConfigValue},
+    task_defs::{ConfigField, ConfigValue, TaskConfigTpl},
 };
 
 #[tokio::main]
@@ -37,8 +37,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         task_id: "ticker".to_string(),
         config_tpl: Some(TaskConfigTpl {
             fields: vec![
-                ConfigField::optional_with_default("period_ms", TaskConfigValue::Uint(1000)),
-                ConfigField::optional_with_default("iterations", TaskConfigValue::Uint(10)),
+                ConfigField::with_default("period_ms", ConfigValue::Uint(1000)),
+                ConfigField::with_default("iterations", ConfigValue::Uint(10)),
             ],
             disallow_unknown_fields: true,
         }),
@@ -49,13 +49,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     println!("Creating raw flow...");
-    let mut cfg1 = HashMap::<String, TaskConfigValue>::new();
-    cfg1.insert("period_ms".to_string(), TaskConfigValue::Uint(500));
-    cfg1.insert("iterations".to_string(), TaskConfigValue::Uint(10));
+    let mut cfg1 = HashMap::<String, ConfigValue>::new();
+    cfg1.insert("period_ms".to_string(), ConfigValue::Uint(500));
+    cfg1.insert("iterations".to_string(), ConfigValue::Uint(10));
 
-    let mut cfg2 = HashMap::<String, TaskConfigValue>::new();
-    cfg2.insert("period_ms".to_string(), TaskConfigValue::Uint(500));
-    cfg2.insert("iterations".to_string(), TaskConfigValue::Uint(10));
+    let mut cfg2 = HashMap::<String, ConfigValue>::new();
+    cfg2.insert("period_ms".to_string(), ConfigValue::Uint(500));
+    cfg2.insert("iterations".to_string(), ConfigValue::Uint(10));
 
     // Create a RawFlow representing the processing graph we want
     let raw_flow = RawFlow {
