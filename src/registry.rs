@@ -5,7 +5,7 @@ use crate::{
     task_defs::{TaskConfig, TaskConfigTpl},
 };
 
-use crate::task_defs::{daemon::Daemon, sink::Sink};
+use crate::task_defs::{daemon::Daemon, node::Node, sink::Sink};
 
 #[derive(Debug)]
 pub struct TaskInfo {
@@ -22,6 +22,11 @@ pub enum TaskDefInfo {
     SinkDef {
         inputs: HashMap<String, Vec<TypeId>>,
         build_sink: fn(&TaskConfig) -> Result<Box<dyn Sink>, String>,
+    },
+    NodeDef {
+        inputs: HashMap<String, Vec<TypeId>>,
+        outputs: HashMap<String, Vec<TypeId>>,
+        build_node: fn(&TaskConfig) -> Result<Box<dyn Node>, String>,
     },
 }
 

@@ -13,6 +13,7 @@ use crate::{
 use super::{
     connection::{Connection, IncomingConnections, OutgoingConnections},
     daemon_actor::DaemonActor,
+    node_actor::NodeActor,
     sink_actor::SinkActor,
     NegotiatedType,
 };
@@ -85,6 +86,25 @@ impl Root {
                         self.connections.incoming_connections_to(node_id),
                     );
                     let r = SinkActor::spawn_link(&actor_ref, r).await;
+                    Ok(r.id())
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+            },
+            TaskDefInfo::NodeDef {
+                inputs: _inputs,
+                outputs: _outputs,
+                build_node,
+            } => match build_node(&node.configuration) {
+                Ok(node_impl) => {
+                    let r = NodeActor::new(
+                        Some(node_impl),
+                        self.monitor_chan.clone(),
+                        self.connections.incoming_connections_to(node_id),
+                        self.connections.outgoing_connections_from(node_id),
+                    );
+                    let r = NodeActor::spawn_link(&actor_ref, r).await;
                     Ok(r.id())
                 }
                 Err(e) => {
@@ -219,9 +239,18 @@ struct EdgeConnections {
 
 impl From<Vec<Edge>> for EdgeConnections {
     fn from(edges: Vec<Edge>) -> Self {
+        use std::collections::HashMap;
+        use crate::flow::NodeRef;
+
+        // Group edges by their source (from NodeRef) so that fan-out edges share the same Connection/PubSub
+        let mut conn_by_source: HashMap<NodeRef, Connection> = HashMap::new();
         let mut mapping = vec![];
+
         for edge in edges {
-            let conn = edge.to_connection();
+            let conn = conn_by_source
+                .entry(edge.from.clone())
+                .or_insert_with(|| edge.to_connection())
+                .clone();
             mapping.push((edge, conn));
         }
         EdgeConnections { mapping }

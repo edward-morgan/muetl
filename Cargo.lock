@@ -322,6 +322,7 @@ dependencies = [
  "futures",
  "kameo",
  "kameo_actors",
+ "once_cell",
  "phf",
  "rdkafka",
  "tokio",

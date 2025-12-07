@@ -43,6 +43,7 @@ type ChannelImpl = Arc<ActorRef<PubSub<EventMessage>>>;
 /// TODO: Ideally chan_ref shouldn't be `pub`, since callers could use it to stop or
 /// otherwise affect the PubSub, when really they *only* need the ability to publish
 /// to it.
+#[derive(Clone)]
 pub struct Connection {
     /// The negotiated type of this connection.
     pub chan_type: Arc<NegotiatedType>,

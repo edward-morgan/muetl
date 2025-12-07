@@ -71,37 +71,49 @@ impl Message<()> for DaemonActor {
             daemon
         });
 
+        let mut should_stop = false;
+        let mut results_closed = false;
+        let mut status_closed = false;
+
         loop {
             select! {
-                res = result_rx.recv() => {
-                    if let Some(result) = res {
-                        println!("Received result {:?}", result);
-                        match self.outgoing_connections.publish_to(Arc::new(result)).await {
-                            Ok(()) => break,
-                             Err(reason) => println!("failed to produce events: {}", reason),
+                res = result_rx.recv(), if !results_closed => {
+                    match res {
+                        Some(result) => {
+                            match self.outgoing_connections.publish_to(Arc::new(result)).await {
+                                Ok(()) => {},
+                                Err(reason) => println!("failed to produce events: {}", reason),
+                            }
+                        },
+                        None => {
+                            results_closed = true;
                         }
-                    } else if status_rx.is_closed() {
-                        break;
                     }
                 },
-                res = status_rx.recv() => {
-                    if let Some(status) = res {
-                        println!("Received status {:?}", status);
-                        let update = StatusUpdate{status: status.clone(), id: self.id};
-                        self.monitor_chan.tell(Publish(update)).await.unwrap();
-                        match &status {
-                            Status::Finished => {
-                                println!("Daemon is finished; exiting...");
-                                self.outgoing_connections.broadcast_shutdown().await;
-                                ctx.stop();
+                res = status_rx.recv(), if !status_closed => {
+                    match res {
+                        Some(status) => {
+                            let update = StatusUpdate{status: status.clone(), id: self.id};
+                            self.monitor_chan.tell(Publish(update)).await.unwrap();
+                            if matches!(status, Status::Finished) {
+                                should_stop = true;
                             }
-                            _ => {},
+                        },
+                        None => {
+                            status_closed = true;
                         }
-                    } else if result_rx.is_closed() {
-                        break;
                     }
                 },
             }
+
+            if results_closed && status_closed {
+                break;
+            }
+        }
+        if should_stop {
+            println!("Daemon is finished; exiting...");
+            self.outgoing_connections.broadcast_shutdown().await;
+            ctx.stop();
         }
 
         match fut.await {

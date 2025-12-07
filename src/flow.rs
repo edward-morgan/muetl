@@ -177,8 +177,9 @@ impl Flow {
 /// vector is copied and returned.
 fn outputs_of(task_info: &TaskInfo, conn_name: &String) -> Option<Vec<TypeId>> {
     match &task_info.info {
-        TaskDefInfo::DaemonDef { outputs, .. } => outputs.get(conn_name).map(|o| o.clone()),
-        _ => None,
+        TaskDefInfo::DaemonDef { outputs, .. } => outputs.get(conn_name).cloned(),
+        TaskDefInfo::NodeDef { outputs, .. } => outputs.get(conn_name).cloned(),
+        TaskDefInfo::SinkDef { .. } => None,
     }
 }
 /// Retrieves the inputs of a given TaskInfo for a conn_name in it. If the conn_name doesn't exist, or if the
@@ -186,8 +187,9 @@ fn outputs_of(task_info: &TaskInfo, conn_name: &String) -> Option<Vec<TypeId>> {
 /// vector is copied and returned.
 fn inputs_of(task_info: &TaskInfo, conn_name: &String) -> Option<Vec<TypeId>> {
     match &task_info.info {
-        TaskDefInfo::SinkDef { inputs, .. } => inputs.get(conn_name).map(|o| o.clone()),
-        _ => None,
+        TaskDefInfo::SinkDef { inputs, .. } => inputs.get(conn_name).cloned(),
+        TaskDefInfo::NodeDef { inputs, .. } => inputs.get(conn_name).cloned(),
+        TaskDefInfo::DaemonDef { .. } => None,
     }
 }
 #[derive(Debug)]
