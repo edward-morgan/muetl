@@ -10,10 +10,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use muetl::{
+    impl_operator_handler, impl_sink_handler,
     messages::event::Event,
-    task_defs::{
-        operator::Operator, sink::Sink, source::Source, MuetlContext, MuetlSinkContext, TaskConfig, TaskDef,
-    },
+    task_defs::{source::Source, Input, MuetlContext, MuetlSinkContext, SinkInput, TaskConfig, TaskDef},
 };
 
 // ----------------------------------------------------------------------------
@@ -69,7 +68,7 @@ pub struct Adder {
 }
 
 impl Adder {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Operator>, String> {
+    pub fn new(config: &TaskConfig) -> Result<Box<dyn muetl::task_defs::operator::Operator>, String> {
         let addend = config
             .get("addend")
             .and_then(config_value_to_i64)
@@ -80,30 +79,23 @@ impl Adder {
 
 impl TaskDef for Adder {}
 
-#[async_trait]
-impl Operator for Adder {
-    async fn handle_event_for_conn(
-        &mut self,
-        ctx: &MuetlContext,
-        conn_name: &String,
-        ev: Arc<Event>,
-    ) {
-        if conn_name == "input" {
-            if let Some(value) = ev.get_data().downcast_ref::<i64>() {
-                let result = value + self.addend;
-                ctx.results
-                    .send(Event::new(
-                        format!("{}-plus-{}", ev.name, self.addend),
-                        "output".to_string(),
-                        HashMap::new(),
-                        Arc::new(result),
-                    ))
-                    .await
-                    .unwrap();
-            }
-        }
+impl Input<i64> for Adder {
+    const conn_name: &'static str = "input";
+    async fn handle(&mut self, ctx: &MuetlContext, value: &i64) {
+        let result = value + self.addend;
+        ctx.results
+            .send(Event::new(
+                format!("{}-plus-{}", ctx.event_name.as_ref().unwrap(), self.addend),
+                "output".to_string(),
+                HashMap::new(),
+                Arc::new(result),
+            ))
+            .await
+            .unwrap();
     }
 }
+
+impl_operator_handler!(Adder, "input" => i64);
 
 // ----------------------------------------------------------------------------
 // Multiplier - An Operator that multiplies input numbers by a constant
@@ -114,7 +106,7 @@ pub struct Multiplier {
 }
 
 impl Multiplier {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Operator>, String> {
+    pub fn new(config: &TaskConfig) -> Result<Box<dyn muetl::task_defs::operator::Operator>, String> {
         let factor = config
             .get("factor")
             .and_then(config_value_to_i64)
@@ -125,30 +117,23 @@ impl Multiplier {
 
 impl TaskDef for Multiplier {}
 
-#[async_trait]
-impl Operator for Multiplier {
-    async fn handle_event_for_conn(
-        &mut self,
-        ctx: &MuetlContext,
-        conn_name: &String,
-        ev: Arc<Event>,
-    ) {
-        if conn_name == "input" {
-            if let Some(value) = ev.get_data().downcast_ref::<i64>() {
-                let result = value * self.factor;
-                ctx.results
-                    .send(Event::new(
-                        format!("{}-times-{}", ev.name, self.factor),
-                        "output".to_string(),
-                        HashMap::new(),
-                        Arc::new(result),
-                    ))
-                    .await
-                    .unwrap();
-            }
-        }
+impl Input<i64> for Multiplier {
+    const conn_name: &'static str = "input";
+    async fn handle(&mut self, ctx: &MuetlContext, value: &i64) {
+        let result = value * self.factor;
+        ctx.results
+            .send(Event::new(
+                format!("{}-times-{}", ctx.event_name.as_ref().unwrap(), self.factor),
+                "output".to_string(),
+                HashMap::new(),
+                Arc::new(result),
+            ))
+            .await
+            .unwrap();
     }
 }
+
+impl_operator_handler!(Multiplier, "input" => i64);
 
 // ----------------------------------------------------------------------------
 // ResultCollector - A Sink that collects results for assertion
@@ -167,7 +152,7 @@ pub struct ResultCollector {
 }
 
 impl ResultCollector {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Sink>, String> {
+    pub fn new(config: &TaskConfig) -> Result<Box<dyn muetl::task_defs::sink::Sink>, String> {
         let name = config
             .get("name")
             .and_then(config_value_to_string)
@@ -200,26 +185,19 @@ impl ResultCollector {
 
 impl TaskDef for ResultCollector {}
 
-#[async_trait]
-impl Sink for ResultCollector {
-    async fn handle_event_for_conn(
-        &mut self,
-        _ctx: &MuetlSinkContext,
-        conn_name: &String,
-        ev: Arc<Event>,
-    ) {
-        if conn_name == "input" {
-            if let Some(value) = ev.get_data().downcast_ref::<i64>() {
-                COLLECTED_RESULTS
-                    .lock()
-                    .unwrap()
-                    .entry(self.name.clone())
-                    .or_default()
-                    .push(*value);
-            }
-        }
+impl SinkInput<i64> for ResultCollector {
+    const conn_name: &'static str = "input";
+    async fn handle(&mut self, _ctx: &MuetlSinkContext, value: &i64) {
+        COLLECTED_RESULTS
+            .lock()
+            .unwrap()
+            .entry(self.name.clone())
+            .or_default()
+            .push(*value);
     }
 }
+
+impl_sink_handler!(ResultCollector, "input" => i64);
 
 // ----------------------------------------------------------------------------
 // Helper for extracting i64 from ConfigValue

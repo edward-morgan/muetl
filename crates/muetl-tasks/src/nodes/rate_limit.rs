@@ -21,6 +21,7 @@ use tokio::time::sleep;
 /// - `max_per_second` (default: 10): Maximum events per second to allow through
 ///
 /// Events exceeding the rate are delayed (not dropped) to maintain the rate.
+/// Note: This operator is type-agnostic and doesn't use the macro.
 pub struct RateLimit {
     min_interval: Duration,
     last_emit: Option<Instant>,
@@ -76,11 +77,12 @@ impl Operator for RateLimit {
 
         self.last_emit = Some(Instant::now());
 
+        let headers = ctx.event_headers.clone().unwrap_or_default();
         ctx.results
             .send(Event::new(
-                ev.name.clone(),
+                ctx.event_name.clone().unwrap_or_default(),
                 "output".to_string(),
-                ev.headers.clone(),
+                headers,
                 ev.get_data(),
             ))
             .await

@@ -12,6 +12,105 @@ use tokio::sync::mpsc::Sender;
 
 use crate::messages::{event::Event, Status};
 
+/// Generates the `handle_event_for_conn` implementation for an Operator.
+///
+/// This macro reduces boilerplate by generating the connection name matching
+/// and type downcasting logic. It calls the `Input<T>::handle` method for each
+/// type registered with the macro.
+///
+/// # Example
+///
+/// ```ignore
+/// struct Adder { addend: i64 }
+///
+/// impl Input<i64> for Adder {
+///     const conn_name: &'static str = "input";
+///     async fn handle(&mut self, ctx: &MuetlContext, value: &i64) {
+///         let result = value + self.addend;
+///         ctx.results.send(Event::new(
+///             format!("{}-plus-{}", ctx.event_name.as_ref().unwrap(), self.addend),
+///             "output".to_string(),
+///             ctx.event_headers.clone().unwrap_or_default(),
+///             Arc::new(result),
+///         )).await.unwrap();
+///     }
+/// }
+///
+/// impl_operator_handler!(Adder, "input" => i64);
+/// ```
+#[macro_export]
+macro_rules! impl_operator_handler {
+    ($ty:ty, $($conn:literal => $input_ty:ty),* $(,)?) => {
+        #[async_trait::async_trait]
+        impl $crate::task_defs::operator::Operator for $ty {
+            async fn handle_event_for_conn(
+                &mut self,
+                ctx: &$crate::task_defs::MuetlContext,
+                conn_name: &String,
+                ev: std::sync::Arc<$crate::messages::event::Event>,
+            ) {
+                match conn_name.as_str() {
+                    $(
+                        $conn => {
+                            if let Some(data) = ev.get_data().downcast_ref::<$input_ty>() {
+                                <Self as $crate::task_defs::Input<$input_ty>>::handle(self, ctx, data).await;
+                            }
+                        }
+                    )*
+                    _ => {}
+                }
+            }
+        }
+    };
+}
+
+/// Generates the `handle_event_for_conn` implementation for a Sink.
+///
+/// This macro reduces boilerplate by generating the connection name matching
+/// and type downcasting logic. It calls the `SinkInput<T>::handle` method for each
+/// type registered with the macro.
+///
+/// # Example
+///
+/// ```ignore
+/// struct MySink { count: u64 }
+///
+/// impl SinkInput<String> for MySink {
+///     const conn_name: &'static str = "input";
+///     async fn handle(&mut self, ctx: &MuetlSinkContext, value: &String) {
+///         println!("[{}] {}", ctx.event_name, value);
+///         self.count += 1;
+///     }
+/// }
+///
+/// impl_sink_handler!(MySink, "input" => String);
+/// ```
+#[macro_export]
+macro_rules! impl_sink_handler {
+    ($ty:ty, $($conn:literal => $input_ty:ty),* $(,)?) => {
+        #[async_trait::async_trait]
+        impl $crate::task_defs::sink::Sink for $ty {
+            async fn handle_event_for_conn(
+                &mut self,
+                ctx: &$crate::task_defs::MuetlSinkContext,
+                conn_name: &String,
+                ev: std::sync::Arc<$crate::messages::event::Event>,
+            ) {
+                match conn_name.as_str() {
+                    $(
+                        $conn => {
+                            if let Some(data) = ev.get_data().downcast_ref::<$input_ty>() {
+                                <Self as $crate::task_defs::SinkInput<$input_ty>>::handle(self, ctx, data).await;
+                            }
+                        }
+                    )*
+                    _ => {}
+                }
+            }
+        }
+    };
+}
+
 /// An OutputType represents the type of an output connection in a TaskDef.
 ///
 /// The specific type may be a single type, a one-of sum type or an
@@ -418,6 +517,10 @@ pub struct MuetlContext {
     pub results: Sender<Event>,
     /// The channel to send statuses back on.
     pub status: Sender<Status>,
+    /// The name of the current event being processed (if any).
+    pub event_name: Option<String>,
+    /// Headers from the current event being processed (if any).
+    pub event_headers: Option<HashMap<String, String>>,
 }
 
 /// A MuetlSinkContext contains the context a Sink should use when running. It's different from a `MuetlContext` in that it has
@@ -425,4 +528,8 @@ pub struct MuetlContext {
 pub struct MuetlSinkContext {
     /// The channel to send statuses back on.
     pub status: Sender<Status>,
+    /// The name of the current event being processed.
+    pub event_name: String,
+    /// Headers from the current event being processed.
+    pub event_headers: HashMap<String, String>,
 }

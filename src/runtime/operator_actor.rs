@@ -94,6 +94,8 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                             current_subscribers: HashMap::new(),
                             results: result_tx,
                             status: status_tx,
+                            event_name: Some(ev.name.clone()),
+                            event_headers: Some(ev.headers.clone()),
                         };
 
                         let mut operator = self.operator.take().unwrap();

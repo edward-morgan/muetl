@@ -2,6 +2,7 @@
 
 use std::{
     any::Any,
+    collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -23,11 +24,12 @@ use muetl::{
 ///
 /// Emits `Vec<Arc<dyn Any + Send + Sync>>` containing the collected event data.
 /// Headers from the first event in the batch are used for the output event.
+/// Note: This operator is type-agnostic and doesn't use the macro.
 pub struct Batch {
     max_size: usize,
     max_wait: Duration,
     buffer: Vec<Arc<dyn Any + Send + Sync>>,
-    first_headers: Option<std::collections::HashMap<String, String>>,
+    first_headers: Option<HashMap<String, String>>,
     batch_start: Option<Instant>,
     batch_count: u64,
 }
@@ -106,7 +108,7 @@ impl Operator for Batch {
         // Start timing if this is the first event in the batch
         if self.batch_start.is_none() {
             self.batch_start = Some(Instant::now());
-            self.first_headers = Some(ev.headers.clone());
+            self.first_headers = ctx.event_headers.clone();
         }
 
         self.buffer.push(ev.get_data());

@@ -4,14 +4,12 @@ use std::{
     fs::{File, OpenOptions},
     io::{BufWriter, Write},
     path::PathBuf,
-    sync::Arc,
 };
 
-use async_trait::async_trait;
 use muetl::{
-    messages::event::Event,
+    impl_sink_handler,
     task_defs::{
-        sink::Sink, ConfigField, ConfigType, ConfigValue, MuetlSinkContext, TaskConfig,
+        ConfigField, ConfigType, ConfigValue, MuetlSinkContext, SinkInput, TaskConfig,
         TaskConfigTpl, TaskDef,
     },
 };
@@ -33,7 +31,7 @@ pub struct FileSink {
 }
 
 impl FileSink {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Sink>, String> {
+    pub fn new(config: &TaskConfig) -> Result<Box<dyn muetl::task_defs::sink::Sink>, String> {
         let path = PathBuf::from(config.require_str("path"));
         let append = config.get_bool("append").unwrap_or(true);
         let flush_every = config.get_u64("flush_every").unwrap_or(1);
@@ -77,30 +75,20 @@ impl TaskDef for FileSink {
     }
 }
 
-#[async_trait]
-impl Sink for FileSink {
-    async fn handle_event_for_conn(
-        &mut self,
-        _ctx: &MuetlSinkContext,
-        conn_name: &String,
-        ev: Arc<Event>,
-    ) {
-        if conn_name != "input" {
-            return;
-        }
-
+impl SinkInput<String> for FileSink {
+    const conn_name: &'static str = "input";
+    async fn handle(&mut self, _ctx: &MuetlSinkContext, data: &String) {
         let Some(ref mut writer) = self.writer else {
             return;
         };
 
-        // Try to get string data
-        if let Some(s) = ev.get_data().downcast_ref::<String>() {
-            let _ = writeln!(writer, "{}", s);
-            self.event_count += 1;
+        let _ = writeln!(writer, "{}", data);
+        self.event_count += 1;
 
-            if self.flush_every > 0 && self.event_count % self.flush_every == 0 {
-                let _ = writer.flush();
-            }
+        if self.flush_every > 0 && self.event_count % self.flush_every == 0 {
+            let _ = writer.flush();
         }
     }
 }
+
+impl_sink_handler!(FileSink, "input" => String);

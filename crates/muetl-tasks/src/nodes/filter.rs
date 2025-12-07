@@ -1,6 +1,6 @@
 //! Filter operator - passes through events that match header conditions.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use muetl::{
@@ -19,6 +19,7 @@ use muetl::{
 /// - `invert` (default: false): If true, pass events that do NOT match
 ///
 /// Events that match (or don't match if inverted) are passed through unchanged.
+/// Note: This operator is type-agnostic and doesn't use the macro.
 pub struct Filter {
     header_key: String,
     header_value: String,
@@ -34,9 +35,8 @@ impl Filter {
         }))
     }
 
-    fn matches(&self, ev: &Event) -> bool {
-        let header_matches = ev
-            .headers
+    fn matches(&self, headers: &HashMap<String, String>) -> bool {
+        let header_matches = headers
             .get(&self.header_key)
             .map(|v| v == &self.header_value)
             .unwrap_or(false);
@@ -70,13 +70,17 @@ impl Operator for Filter {
         conn_name: &String,
         ev: Arc<Event>,
     ) {
-        if conn_name == "input" && self.matches(&ev) {
-            // Pass through the event unchanged, just update conn_name to "output"
+        if conn_name != "input" {
+            return;
+        }
+
+        let headers = ctx.event_headers.as_ref().cloned().unwrap_or_default();
+        if self.matches(&headers) {
             ctx.results
                 .send(Event::new(
-                    ev.name.clone(),
+                    ctx.event_name.clone().unwrap_or_default(),
                     "output".to_string(),
-                    ev.headers.clone(),
+                    headers,
                     ev.get_data(),
                 ))
                 .await

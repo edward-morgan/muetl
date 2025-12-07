@@ -16,6 +16,7 @@ use muetl::{
 /// - Testing flow configurations
 ///
 /// No configuration options.
+/// Note: This sink is type-agnostic and doesn't use the macro.
 pub struct DiscardSink {
     count: u64,
 }

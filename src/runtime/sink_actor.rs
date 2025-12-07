@@ -83,7 +83,11 @@ impl Message<Arc<InternalEvent>> for SinkActor {
                 match self.subscriptions.conn_name_for(msg.clone()) {
                     Ok(input_conn_name) => {
                         let (status_tx, mut status_rx) = mpsc::channel(100);
-                        let ctx = MuetlSinkContext { status: status_tx };
+                        let ctx = MuetlSinkContext {
+                            status: status_tx,
+                            event_name: ev.name.clone(),
+                            event_headers: ev.headers.clone(),
+                        };
 
                         let mut sink = self.sink.take().unwrap();
                         let m = ev.clone();

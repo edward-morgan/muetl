@@ -41,6 +41,8 @@ impl SourceActor {
                 current_subscribers: HashMap::new(),
                 results: results_tx,
                 status: status_tx,
+                event_name: None,
+                event_headers: None,
             },
             outgoing_connections,
         }
@@ -62,6 +64,8 @@ impl Message<()> for SourceActor {
             current_subscribers: self.current_context.current_subscribers.clone(),
             results: result_tx,
             status: status_tx,
+            event_name: None,
+            event_headers: None,
         };
         let mut source = self.source.take().unwrap();
 

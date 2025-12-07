@@ -1,6 +1,6 @@
 //! Dedup operator - suppresses consecutive duplicate events.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use muetl::{
@@ -19,6 +19,7 @@ use muetl::{
 /// Events are passed through only if their dedup_key header value differs
 /// from the previous event's value. Events without the dedup_key header
 /// are always passed through.
+/// Note: This operator is type-agnostic and doesn't use the macro.
 pub struct Dedup {
     dedup_key: String,
     last_value: Option<String>,
@@ -54,7 +55,8 @@ impl Operator for Dedup {
             return;
         }
 
-        let current_value = ev.headers.get(&self.dedup_key).cloned();
+        let headers = ctx.event_headers.as_ref().cloned().unwrap_or_default();
+        let current_value = headers.get(&self.dedup_key).cloned();
 
         let should_emit = match (&self.last_value, &current_value) {
             // No dedup key in event - always emit
@@ -69,9 +71,9 @@ impl Operator for Dedup {
             self.last_value = current_value;
             ctx.results
                 .send(Event::new(
-                    ev.name.clone(),
+                    ctx.event_name.clone().unwrap_or_default(),
                     "output".to_string(),
-                    ev.headers.clone(),
+                    headers,
                     ev.get_data(),
                 ))
                 .await
