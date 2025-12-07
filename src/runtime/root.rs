@@ -118,8 +118,8 @@ impl Actor for Root {
     }
     async fn on_stop(
         &mut self,
-        actor_ref: WeakActorRef<Self>,
-        reason: ActorStopReason,
+        _actor_ref: WeakActorRef<Self>,
+        _reason: ActorStopReason,
     ) -> Result<(), Self::Error> {
         println!("Flow complete.");
         Ok(())
@@ -136,14 +136,10 @@ impl Actor for Root {
                 Some(_) => {
                     if self.actor_node_mapping.is_empty() {
                         println!("No supervised actors are still active. Root will close...");
-                        actor_ref
-                            .upgrade()
-                            .unwrap()
-                            .stop_gracefully()
-                            .await
-                            .unwrap();
+                        Ok(ControlFlow::Break(ActorStopReason::Normal))
+                    } else {
+                        Ok(ControlFlow::Continue(()))
                     }
-                    Ok(ControlFlow::Continue(()))
                 }
                 None => Err(format!(
                     "supervised actor with id {} stopped but is not in root node mapping",
@@ -156,6 +152,7 @@ impl Actor for Root {
                     if let Some(node) = self.flow.nodes.get(node_id) {
                         println!("Node {} was killed. Restarting...", node.task_id);
                         match self
+                            // TODO: Upgrading here - probably need to be safer
                             .spawn_actor_for_node(&actor_ref.upgrade().unwrap(), node_id, node)
                             .await
                         {
@@ -261,125 +258,3 @@ impl EdgeConnections {
         IncomingConnections::from(&conns)
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-
-//     use crate::{
-//         flow::{Node, RawFlow},
-//         task_defs::{daemon::Daemon, sink::Sink, TaskConfig},
-//     };
-
-//     use super::*;
-
-//     fn dummy_build_sink(_: &TaskConfig) -> Result<Box<dyn Sink>, String> {
-//         Err(format!("unimplemented"))
-//     }
-//     fn dummy_build_daemon(_: &TaskConfig) -> Result<Box<dyn Daemon>, String> {
-//         Err(format!("unimplemented"))
-//     }
-
-//     fn build_test_registry() -> Registry {
-//         let mut registry = Registry::new();
-
-//         let mut node1_outputs = HashMap::new();
-//         node1_outputs.insert("output-1".to_string(), vec![TypeId::of::<String>()]);
-
-//         let mut node2_inputs = HashMap::new();
-//         node2_inputs.insert("input-1".to_string(), vec![TypeId::of::<String>()]);
-
-//         let node1_ti = TaskInfo {
-//             task_id: "one".to_string(),
-//             config_tpl: None,
-//             info: TaskDefInfo::DaemonDef {
-//                 outputs: node1_outputs,
-//                 build_daemon: dummy_build_daemon,
-//             },
-//         };
-//         let node2_ti = TaskInfo {
-//             task_id: "two".to_string(),
-//             config_tpl: None,
-//             info: TaskDefInfo::SinkDef {
-//                 inputs: node2_inputs,
-//                 build_sink: dummy_build_sink,
-//             },
-//         };
-//         registry.add_def(node1_ti);
-//         registry.add_def(node2_ti);
-//         registry
-//     }
-
-//     #[test]
-//     fn validate_valid_flow() {
-//         let registry = build_test_registry();
-
-//         let node1_name = "node-1".to_string();
-//         let node2_name = "node-2".to_string();
-//         let nodes = vec![
-//             Node {
-//                 node_id: node1_name.clone(),
-//                 task_id: "one".to_string(),
-//                 configuration: HashMap::new(),
-//                 info: None,
-//             },
-//             Node {
-//                 node_id: node2_name.clone(),
-//                 task_id: "two".to_string(),
-//                 configuration: HashMap::new(),
-//                 info: None,
-//             },
-//         ];
-//         let edges = vec![Edge {
-//             from: NodeRef::new(node1_name.clone(), "output-1".to_string()),
-//             to: NodeRef::new(node2_name.clone(), "input-1".to_string()),
-//             edge_type: None,
-//         }];
-
-//         let raw_flow = RawFlow { nodes, edges };
-//         let f = Flow::try_from(raw_flow);
-//         assert!(f.is_ok());
-//         let mut flow = f.unwrap();
-//         let validation_result = validate_flow(&mut flow, Arc::new(registry));
-//         assert!(validation_result.is_ok());
-
-//         println!("Validation result: {:?}", validation_result);
-//         println!("Processed Flow: {:?}", flow);
-//     }
-
-//     #[test]
-//     fn validate_invalid_flow_bad_outputs() {
-//         let registry = build_test_registry();
-
-//         let node1_name = "node-1".to_string();
-//         let node2_name = "node-2".to_string();
-//         let nodes = vec![
-//             Node {
-//                 node_id: node1_name.clone(),
-//                 task_id: "one".to_string(),
-//                 configuration: HashMap::new(),
-//                 info: None,
-//             },
-//             Node {
-//                 node_id: node2_name.clone(),
-//                 task_id: "two".to_string(),
-//                 configuration: HashMap::new(),
-//                 info: None,
-//             },
-//         ];
-//         let edges = vec![Edge {
-//             from: NodeRef::new(node1_name.clone(), "output-1".to_string()),
-//             to: NodeRef::new(node2_name.clone(), "input-1".to_string()),
-//             edge_type: None,
-//         }];
-
-//         let raw_flow = RawFlow { nodes, edges };
-//         let f = Flow::try_from(raw_flow);
-//         assert!(f.is_ok());
-//         let mut flow = f.unwrap();
-//         let validation_result = validate_flow(&mut flow, Arc::new(registry));
-//         assert!(validation_result.is_ok());
-
-//         println!("Validation result: {:?}", validation_result);
-//         println!("Processed Flow: {:?}", flow);
-//     }
-// }
