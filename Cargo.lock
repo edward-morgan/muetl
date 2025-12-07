@@ -330,6 +330,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "muetl-tasks"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "muetl",
+ "tokio",
+]
+
+[[package]]
 name = "num_enum"
 version = "0.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"

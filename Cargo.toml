@@ -5,6 +5,9 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[workspace]
+members = ["crates/muetl-tasks"]
+
 [dependencies]
 futures = "0.3.31"
 kameo = "0.18.0"
