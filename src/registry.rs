@@ -1,9 +1,6 @@
 use std::{any::TypeId, collections::HashMap, sync::Arc};
 
-use crate::{
-    runtime::connection::IncomingConnections,
-    task_defs::{TaskConfig, TaskConfigTpl},
-};
+use crate::task_defs::{TaskConfig, TaskConfigTpl};
 
 use crate::task_defs::{operator::Operator, sink::Sink, source::Source};
 
@@ -28,22 +25,6 @@ pub enum TaskDefInfo {
         outputs: HashMap<String, Vec<TypeId>>,
         build_operator: fn(&TaskConfig) -> Result<Box<dyn Operator>, String>,
     },
-}
-
-impl TaskDefInfo {
-    pub fn validate(
-        &self,
-        inputs: &IncomingConnections,
-        config: &TaskConfig,
-    ) -> Result<(), Vec<String>> {
-        let errors = vec![];
-
-        if errors.len() > 0 {
-            Err(errors)
-        } else {
-            Ok(())
-        }
-    }
 }
 
 pub struct Registry {

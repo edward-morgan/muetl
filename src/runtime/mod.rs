@@ -6,12 +6,7 @@ pub mod root;
 pub mod sink_actor;
 pub mod source_actor;
 
-use kameo::prelude::*;
-use std::{
-    any::{Any, TypeId},
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{any::TypeId, collections::HashMap, sync::Arc};
 
 use crate::messages::event::Event;
 use crate::runtime::event::InternalEvent;

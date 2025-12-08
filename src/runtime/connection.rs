@@ -122,7 +122,6 @@ impl IncomingConnections {
 pub struct IncomingConnection {
     pub chan_type: Arc<NegotiatedType>,
     pub chan_ref: ChannelImpl,
-    sender_id: u64,
     pub receiver_conn_name: String, // Descriptive only
     /// Whether or not this connection is active, which corresponds to whether or not a sender has sent the
     /// `Payload::Stopped` event type.
@@ -133,7 +132,6 @@ impl IncomingConnection {
         Self {
             chan_ref: c.chan_ref.clone(),
             chan_type: c.chan_type.clone(),
-            sender_id: c.sender_id,
             receiver_conn_name: c.receiver_conn_name.clone(),
             is_active: true,
         }

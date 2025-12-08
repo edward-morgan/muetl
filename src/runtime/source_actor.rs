@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use kameo::prelude::*;
-use kameo::{actor::ActorRef, error::Infallible, prelude::Message, Actor};
+use kameo::{actor::ActorRef, prelude::Message, Actor};
 use kameo_actors::pubsub::{PubSub, Publish};
 use tokio::{
     select,

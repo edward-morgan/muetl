@@ -1,13 +1,13 @@
-use std::{any::TypeId, collections::HashMap, ops::ControlFlow, rc::Rc, sync::Arc};
+use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
 
 use kameo::prelude::*;
 use kameo_actors::pubsub::PubSub;
 
 use crate::{
-    flow::{Edge, Flow, Node, NodeRef},
+    flow::{Edge, Flow, Node},
     logging::FileLogWriter,
     messages::StatusUpdate,
-    registry::{Registry, TaskDefInfo, TaskInfo},
+    registry::TaskDefInfo,
     task_defs::TaskConfig,
     util::new_id,
 };
@@ -17,7 +17,6 @@ use super::{
     operator_actor::OperatorActor,
     sink_actor::SinkActor,
     source_actor::SourceActor,
-    NegotiatedType,
 };
 
 /// The Root is the core runtime that controls everything else inside muetl. It's responsible for:

@@ -17,27 +17,6 @@ impl KafkaConsumer {
 }
 
 impl TaskDef for KafkaConsumer {
-    // fn new(task_config: &TaskConfig) -> Result<Box<Self>, String> {
-    //     let mut config = ClientConfig::new();
-    //     config
-    //         .set(
-    //             "bootstrap.servers",
-    //             String::try_from(task_config.get("bootstrap.servers").unwrap()).unwrap(),
-    //         )
-    //         .set_log_level(rdkafka::config::RDKafkaLogLevel::Debug);
-
-    //     let consumer: BaseConsumer = config.create().expect("Kafka consumer creation failed!");
-
-    //     let topic = String::try_from(task_config.get("input.topic").unwrap()).unwrap();
-
-    //     consumer
-    //         .subscribe(vec![topic.as_str()].as_slice())
-    //         .expect(format!("failed to subscribe to topic '{}'", topic).as_str());
-
-    //     Ok(Box::new(KafkaConsumer {
-    //         consumer: Some(consumer),
-    //     }))
-    // }
     fn task_config_tpl(&self) -> Option<TaskConfigTpl> {
         Some(TaskConfigTpl {
             fields: vec![
@@ -53,24 +32,9 @@ impl TaskDef for KafkaConsumer {
     }
 }
 
-/// A KafkaConsumer can output any discrete registered type, provided it is deserializable.
-/// Note that this only means the consumer will *try* to deserialize Kafka messages into the
-/// given type; if they aren't deserializable, only support deserialization from a particular
-/// type (ex. Protobuf when the topic contains XML), then runtime errors will occur.
 impl Output<OwnedMessage> for KafkaConsumer {
     const conn_name: &'static str = "deserialized_message";
 }
-
-// impl HasOutputs for KafkaConsumer {
-//     fn get_outputs(&self) -> HashMap<String, OutputType> {
-//         let mut hm = HashMap::new();
-//         hm.insert(
-//             "deserialized_message".to_string(),
-//             OutputType::singleton(TypeId::of::<RegisteredType>()),
-//         );
-//         hm
-//     }
-// }
 
 #[async_trait]
 impl Source for KafkaConsumer {

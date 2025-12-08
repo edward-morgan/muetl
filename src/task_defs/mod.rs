@@ -210,14 +210,6 @@ pub trait TaskDef {
     }
 }
 
-// pub trait HasOutputs: TaskDef {
-//     fn get_outputs(&self) -> HashMap<String, OutputType>;
-// }
-
-// pub trait HasInputs: TaskDef {
-//     fn get_inputs(&self) -> HashMap<String, TypeId>;
-// }
-
 /// Users should implement Input<Some Type> to declare that their Node is
 /// capable of processing that type of message on the given connection named
 /// conn_name.
@@ -404,11 +396,18 @@ impl ConfigValue {
             Self::Uint(_) => ConfigType::Uint,
             Self::Bool(_) => ConfigType::Bool,
             Self::Arr(v) => {
-                let inner = v.first().map(|e| e.config_type()).unwrap_or(ConfigType::Any);
+                let inner = v
+                    .first()
+                    .map(|e| e.config_type())
+                    .unwrap_or(ConfigType::Any);
                 ConfigType::Arr(Box::new(inner))
             }
             Self::Map(m) => {
-                let inner = m.values().next().map(|e| e.config_type()).unwrap_or(ConfigType::Any);
+                let inner = m
+                    .values()
+                    .next()
+                    .map(|e| e.config_type())
+                    .unwrap_or(ConfigType::Any);
                 ConfigType::Map(Box::new(inner))
             }
         }
