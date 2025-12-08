@@ -8,7 +8,10 @@
 
 use std::{any::TypeId, collections::HashMap, env, sync::Arc};
 
-use kameo::Actor;
+use kameo::{
+    actor::{ActorRef, Spawn},
+    Actor,
+};
 use kameo_actors::pubsub::PubSub;
 use muetl::{
     flow::{Edge, Flow, Node, NodeRef, RawFlow},
@@ -166,13 +169,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Validating flow...");
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).map_err(|errs| errs.join(", "))?;
 
-    let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
+    let monitor_chan = Spawn::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
 
     println!("Starting S3 listener for CSV files on df-bucket...");
     println!("(Press Ctrl+C to stop)");
 
     let root = Root::new(flow, monitor_chan);
-    let root_ref = Root::spawn(root);
+    let root_ref: ActorRef<Root> = Spawn::spawn(root);
     root_ref.wait_for_shutdown().await;
 
     println!("Done.");

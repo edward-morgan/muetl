@@ -72,7 +72,7 @@ impl S3ListSource {
         // Parse filter options
         let extensions = config.get_arr("extensions").map(|arr| {
             arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+                .flat_map(|v| v.as_str().map(|s| s.to_lowercase()))
                 .collect()
         });
 

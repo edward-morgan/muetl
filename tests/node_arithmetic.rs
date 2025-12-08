@@ -7,7 +7,10 @@ mod common;
 
 use std::{any::TypeId, collections::HashMap, sync::Arc};
 
-use kameo::Actor;
+use kameo::{
+    actor::{ActorRef, Spawn},
+    Actor,
+};
 use kameo_actors::pubsub::PubSub;
 use muetl::{
     flow::{Edge, Flow, Node, NodeRef, RawFlow},
@@ -136,17 +139,27 @@ async fn test_basic_node_passthrough() {
     };
 
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
-    let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
+    let monitor_chan = Spawn::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
     let root = Root::new(flow, monitor_chan);
-    let root_ref = Root::spawn(root);
+    let root_ref: ActorRef<Root> = Spawn::spawn(root);
     root_ref.wait_for_shutdown().await;
 
     let results = ResultCollector::get_results("test1");
-    assert_eq!(results.len(), 5, "Expected 5 results, got {}", results.len());
+    assert_eq!(
+        results.len(),
+        5,
+        "Expected 5 results, got {}",
+        results.len()
+    );
 
     let mut sorted_results = results.clone();
     sorted_results.sort();
-    assert_eq!(sorted_results, vec![0, 1, 2, 3, 4], "Expected [0,1,2,3,4], got {:?}", sorted_results);
+    assert_eq!(
+        sorted_results,
+        vec![0, 1, 2, 3, 4],
+        "Expected [0,1,2,3,4], got {:?}",
+        sorted_results
+    );
 }
 
 /// Test 2: Single Operator transformation
@@ -209,11 +222,21 @@ async fn test_single_node_transformation() {
     root_ref.wait_for_shutdown().await;
 
     let results = ResultCollector::get_results("test2");
-    assert_eq!(results.len(), 5, "Expected 5 results, got {}", results.len());
+    assert_eq!(
+        results.len(),
+        5,
+        "Expected 5 results, got {}",
+        results.len()
+    );
 
     let mut sorted_results = results.clone();
     sorted_results.sort();
-    assert_eq!(sorted_results, vec![10, 11, 12, 13, 14], "Expected [10,11,12,13,14], got {:?}", sorted_results);
+    assert_eq!(
+        sorted_results,
+        vec![10, 11, 12, 13, 14],
+        "Expected [10,11,12,13,14], got {:?}",
+        sorted_results
+    );
 }
 
 /// Test 3: Chained Operators
@@ -291,11 +314,21 @@ async fn test_chained_nodes() {
     root_ref.wait_for_shutdown().await;
 
     let results = ResultCollector::get_results("test3");
-    assert_eq!(results.len(), 5, "Expected 5 results, got {}", results.len());
+    assert_eq!(
+        results.len(),
+        5,
+        "Expected 5 results, got {}",
+        results.len()
+    );
 
     let mut sorted_results = results.clone();
     sorted_results.sort();
-    assert_eq!(sorted_results, vec![10, 12, 14, 16, 18], "Expected [10,12,14,16,18], got {:?}", sorted_results);
+    assert_eq!(
+        sorted_results,
+        vec![10, 12, 14, 16, 18],
+        "Expected [10,12,14,16,18], got {:?}",
+        sorted_results
+    );
 }
 
 /// Test 4: Fan-out from Operator
@@ -315,10 +348,16 @@ async fn test_fan_out_from_node() {
     adder_config.insert("addend".to_string(), ConfigValue::Int(1));
 
     let mut collector_a_config = HashMap::new();
-    collector_a_config.insert("name".to_string(), ConfigValue::Str("fan_out_a".to_string()));
+    collector_a_config.insert(
+        "name".to_string(),
+        ConfigValue::Str("fan_out_a".to_string()),
+    );
 
     let mut collector_b_config = HashMap::new();
-    collector_b_config.insert("name".to_string(), ConfigValue::Str("fan_out_b".to_string()));
+    collector_b_config.insert(
+        "name".to_string(),
+        ConfigValue::Str("fan_out_b".to_string()),
+    );
 
     let raw_flow = RawFlow {
         nodes: vec![
@@ -375,16 +414,36 @@ async fn test_fan_out_from_node() {
     let results_a = ResultCollector::get_results("fan_out_a");
     let results_b = ResultCollector::get_results("fan_out_b");
 
-    assert_eq!(results_a.len(), 5, "Expected 5 results in collector_a, got {}", results_a.len());
-    assert_eq!(results_b.len(), 5, "Expected 5 results in collector_b, got {}", results_b.len());
+    assert_eq!(
+        results_a.len(),
+        5,
+        "Expected 5 results in collector_a, got {}",
+        results_a.len()
+    );
+    assert_eq!(
+        results_b.len(),
+        5,
+        "Expected 5 results in collector_b, got {}",
+        results_b.len()
+    );
 
     let mut sorted_a = results_a.clone();
     sorted_a.sort();
     let mut sorted_b = results_b.clone();
     sorted_b.sort();
 
-    assert_eq!(sorted_a, vec![1, 2, 3, 4, 5], "Expected [1,2,3,4,5] in collector_a, got {:?}", sorted_a);
-    assert_eq!(sorted_b, vec![1, 2, 3, 4, 5], "Expected [1,2,3,4,5] in collector_b, got {:?}", sorted_b);
+    assert_eq!(
+        sorted_a,
+        vec![1, 2, 3, 4, 5],
+        "Expected [1,2,3,4,5] in collector_a, got {:?}",
+        sorted_a
+    );
+    assert_eq!(
+        sorted_b,
+        vec![1, 2, 3, 4, 5],
+        "Expected [1,2,3,4,5] in collector_b, got {:?}",
+        sorted_b
+    );
 }
 
 /// Test 5: Fan-in to Operator
@@ -462,13 +521,23 @@ async fn test_fan_in_to_node() {
     root_ref.wait_for_shutdown().await;
 
     let results = ResultCollector::get_results("fan_in");
-    assert_eq!(results.len(), 6, "Expected 6 results, got {}", results.len());
+    assert_eq!(
+        results.len(),
+        6,
+        "Expected 6 results, got {}",
+        results.len()
+    );
 
     let mut sorted_results = results.clone();
     sorted_results.sort();
     // Both sources emit 0,1,2 which become 100,101,102 after adding 100
     // So we expect two of each: [100, 100, 101, 101, 102, 102]
-    assert_eq!(sorted_results, vec![100, 100, 101, 101, 102, 102], "Expected [100,100,101,101,102,102], got {:?}", sorted_results);
+    assert_eq!(
+        sorted_results,
+        vec![100, 100, 101, 101, 102, 102],
+        "Expected [100,100,101,101,102,102], got {:?}",
+        sorted_results
+    );
 }
 
 /// Test 6: Mixed pipeline
@@ -491,7 +560,10 @@ async fn test_mixed_pipeline() {
     multiplier_config.insert("factor".to_string(), ConfigValue::Int(3));
 
     let mut transformed_config = HashMap::new();
-    transformed_config.insert("name".to_string(), ConfigValue::Str("transformed".to_string()));
+    transformed_config.insert(
+        "name".to_string(),
+        ConfigValue::Str("transformed".to_string()),
+    );
 
     let mut raw_config = HashMap::new();
     raw_config.insert("name".to_string(), ConfigValue::Str("raw".to_string()));
@@ -564,8 +636,18 @@ async fn test_mixed_pipeline() {
     let raw_results = ResultCollector::get_results("raw");
     let transformed_results = ResultCollector::get_results("transformed");
 
-    assert_eq!(raw_results.len(), 5, "Expected 5 raw results, got {}", raw_results.len());
-    assert_eq!(transformed_results.len(), 5, "Expected 5 transformed results, got {}", transformed_results.len());
+    assert_eq!(
+        raw_results.len(),
+        5,
+        "Expected 5 raw results, got {}",
+        raw_results.len()
+    );
+    assert_eq!(
+        transformed_results.len(),
+        5,
+        "Expected 5 transformed results, got {}",
+        transformed_results.len()
+    );
 
     let mut sorted_raw = raw_results.clone();
     sorted_raw.sort();
@@ -573,8 +655,18 @@ async fn test_mixed_pipeline() {
     sorted_transformed.sort();
 
     // Raw: 0,1,2,3,4
-    assert_eq!(sorted_raw, vec![0, 1, 2, 3, 4], "Expected raw [0,1,2,3,4], got {:?}", sorted_raw);
+    assert_eq!(
+        sorted_raw,
+        vec![0, 1, 2, 3, 4],
+        "Expected raw [0,1,2,3,4], got {:?}",
+        sorted_raw
+    );
 
     // Transformed: (0+10)*3=30, (1+10)*3=33, (2+10)*3=36, (3+10)*3=39, (4+10)*3=42
-    assert_eq!(sorted_transformed, vec![30, 33, 36, 39, 42], "Expected transformed [30,33,36,39,42], got {:?}", sorted_transformed);
+    assert_eq!(
+        sorted_transformed,
+        vec![30, 33, 36, 39, 42],
+        "Expected transformed [30,33,36,39,42], got {:?}",
+        sorted_transformed
+    );
 }

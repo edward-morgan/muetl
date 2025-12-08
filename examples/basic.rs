@@ -1,7 +1,10 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
-use kameo::Actor;
+use kameo::{
+    actor::{ActorRef, Spawn},
+    Actor,
+};
 use kameo_actors::pubsub::PubSub;
 use muetl::{
     flow::{Edge, Flow, Node, NodeRef, RawFlow},
@@ -150,13 +153,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize a Root actor with the flow
     println!("Validating raw flow...");
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
-    let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
+    let monitor_chan = Spawn::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
     println!("Starting root...");
 
     // Create root with file logging enabled - logs will be written to ./logs directory
     let root = Root::new(flow, monitor_chan).with_file_logging("./logs")?;
 
-    let root_ref = Root::spawn(root);
+    let root_ref: ActorRef<Root> = Spawn::spawn(root);
     root_ref.wait_for_shutdown().await;
 
     println!("Flow complete! Check ./logs for per-task log files.");
