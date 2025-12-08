@@ -8,3 +8,4 @@ pub mod log_sink;
 
 pub use discard_sink::DiscardSink;
 pub use file_sink::FileSink;
+pub use log_sink::LogSink;

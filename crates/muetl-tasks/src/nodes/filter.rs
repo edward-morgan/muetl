@@ -11,26 +11,74 @@ use muetl::{
     },
 };
 
+/// Comparison operator for filter conditions.
+#[derive(Debug, Clone, Default)]
+pub enum CompareOp {
+    /// Equal (string or numeric)
+    #[default]
+    Eq,
+    /// Not equal (string or numeric)
+    Ne,
+    /// Less than (numeric)
+    Lt,
+    /// Less than or equal (numeric)
+    Le,
+    /// Greater than (numeric)
+    Gt,
+    /// Greater than or equal (numeric)
+    Ge,
+}
+
+impl CompareOp {
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "eq" => Ok(CompareOp::Eq),
+            "ne" => Ok(CompareOp::Ne),
+            "lt" => Ok(CompareOp::Lt),
+            "le" => Ok(CompareOp::Le),
+            "gt" => Ok(CompareOp::Gt),
+            "ge" => Ok(CompareOp::Ge),
+            _ => Err(format!(
+                "invalid operator '{}': expected one of eq, ne, lt, le, gt, ge",
+                s
+            )),
+        }
+    }
+}
+
 /// Filter events based on header key/value matching.
 ///
 /// Configuration:
 /// - `header_key` (required): The header key to check
 /// - `header_value` (required): The value to match against
+/// - `op` (default: "eq"): Comparison operator - one of: eq, ne, lt, le, gt, ge
 /// - `invert` (default: false): If true, pass events that do NOT match
+///
+/// For numeric comparisons (lt, le, gt, ge), both the header value and
+/// `header_value` config are parsed as integers. If parsing fails, the
+/// condition evaluates to false.
 ///
 /// Events that match (or don't match if inverted) are passed through unchanged.
 /// Note: This operator is type-agnostic and doesn't use the macro.
 pub struct Filter {
     header_key: String,
     header_value: String,
+    op: CompareOp,
     invert: bool,
 }
 
 impl Filter {
     pub fn new(config: &TaskConfig) -> Result<Box<dyn Operator>, String> {
+        let op = config
+            .get_str("op")
+            .map(CompareOp::from_str)
+            .transpose()?
+            .unwrap_or_default();
+
         Ok(Box::new(Filter {
             header_key: config.require_str("header_key").to_string(),
             header_value: config.require_str("header_value").to_string(),
+            op,
             invert: config.get_bool("invert").unwrap_or(false),
         }))
     }
@@ -38,13 +86,40 @@ impl Filter {
     fn matches(&self, headers: &HashMap<String, String>) -> bool {
         let header_matches = headers
             .get(&self.header_key)
-            .map(|v| v == &self.header_value)
+            .map(|actual| self.compare(actual))
             .unwrap_or(false);
 
         if self.invert {
             !header_matches
         } else {
             header_matches
+        }
+    }
+
+    fn compare(&self, actual: &str) -> bool {
+        match self.op {
+            CompareOp::Eq => actual == self.header_value,
+            CompareOp::Ne => actual != self.header_value,
+            CompareOp::Lt | CompareOp::Le | CompareOp::Gt | CompareOp::Ge => {
+                self.compare_numeric(actual)
+            }
+        }
+    }
+
+    fn compare_numeric(&self, actual: &str) -> bool {
+        let Ok(actual_num) = actual.parse::<i64>() else {
+            return false;
+        };
+        let Ok(expected_num) = self.header_value.parse::<i64>() else {
+            return false;
+        };
+
+        match self.op {
+            CompareOp::Lt => actual_num < expected_num,
+            CompareOp::Le => actual_num <= expected_num,
+            CompareOp::Gt => actual_num > expected_num,
+            CompareOp::Ge => actual_num >= expected_num,
+            _ => unreachable!(),
         }
     }
 }
@@ -55,6 +130,7 @@ impl TaskDef for Filter {
             fields: vec![
                 ConfigField::required("header_key", ConfigType::Str),
                 ConfigField::required("header_value", ConfigType::Str),
+                ConfigField::with_default("op", ConfigValue::Str("eq".to_string())),
                 ConfigField::with_default("invert", ConfigValue::Bool(false)),
             ],
             disallow_unknown_fields: true,

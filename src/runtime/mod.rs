@@ -21,10 +21,10 @@ pub enum NegotiatedType {
 }
 
 impl NegotiatedType {
-    // The set of events passed in is validated against the negotiated type:
-    // 1. If a singleton type, all events must be of that type.
-    // 2. If an AllOf type, then the list of events must contain exactly one
-    // event for each type specified.
+    /// The set of events passed in is validated against the negotiated type:
+    /// 1. If a singleton type, all events must be of that type.
+    /// 2. If an AllOf type, then the list of events must contain exactly one
+    /// event for each type specified.
     pub fn validate_types(&self, events: Vec<&Event>) -> Result<(), String> {
         match self {
             Self::Singleton(tpe) => {

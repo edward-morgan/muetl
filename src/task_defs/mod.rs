@@ -412,6 +412,14 @@ impl ConfigValue {
             }
         }
     }
+
+    /// Try to get as a string reference
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Self::Str(s) => Some(s.as_str()),
+            _ => None,
+        }
+    }
 }
 
 /// Resolved configuration for a TaskDef instance
@@ -459,6 +467,13 @@ impl TaskConfig {
     pub fn get_bool(&self, key: &str) -> Option<bool> {
         match self.values.get(key)? {
             ConfigValue::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    pub fn get_arr(&self, key: &str) -> Option<&Vec<ConfigValue>> {
+        match self.values.get(key)? {
+            ConfigValue::Arr(arr) => Some(arr),
             _ => None,
         }
     }
@@ -519,6 +534,7 @@ pub struct MuetlContext {
     /// The name of the current event being processed (if any).
     pub event_name: Option<String>,
     /// Headers from the current event being processed (if any).
+    /// In the case of a Source, event_headers will be None, because it has no event to get them from.
     pub event_headers: Option<HashMap<String, String>>,
 }
 

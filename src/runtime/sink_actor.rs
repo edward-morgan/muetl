@@ -38,7 +38,14 @@ impl SinkActor {
         monitor_chan: ActorRef<PubSub<StatusUpdate>>,
         subscriptions: IncomingConnections,
     ) -> Self {
-        Self::with_task_id(new_id(), trace_id, task_name, sink, monitor_chan, subscriptions)
+        Self::with_task_id(
+            new_id(),
+            trace_id,
+            task_name,
+            sink,
+            monitor_chan,
+            subscriptions,
+        )
     }
 
     pub fn with_task_id(
@@ -185,7 +192,11 @@ impl Actor for SinkActor {
         }
     }
 
-    fn on_stop(&mut self, _actor_ref: kameo::actor::WeakActorRef<Self>, _reason: kameo::error::ActorStopReason) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
+    fn on_stop(
+        &mut self,
+        _actor_ref: kameo::actor::WeakActorRef<Self>,
+        _reason: kameo::error::ActorStopReason,
+    ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
         let id = self.id;
         async move {
             // Unregister from log registry

@@ -41,7 +41,15 @@ impl OperatorActor {
         subscriptions: IncomingConnections,
         outgoing_connections: OutgoingConnections,
     ) -> Self {
-        Self::with_task_id(new_id(), trace_id, task_name, operator, monitor_chan, subscriptions, outgoing_connections)
+        Self::with_task_id(
+            new_id(),
+            trace_id,
+            task_name,
+            operator,
+            monitor_chan,
+            subscriptions,
+            outgoing_connections,
+        )
     }
 
     pub fn with_task_id(
@@ -136,7 +144,9 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
 
                         let fut = tokio::spawn(
                             async move {
-                                operator.handle_event_for_conn(&operator_context, &conn_name, m).await;
+                                operator
+                                    .handle_event_for_conn(&operator_context, &conn_name, m)
+                                    .await;
                                 operator
                             }
                             .instrument(span),
@@ -220,7 +230,11 @@ impl Actor for OperatorActor {
         }
     }
 
-    fn on_stop(&mut self, _actor_ref: kameo::actor::WeakActorRef<Self>, _reason: kameo::error::ActorStopReason) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
+    fn on_stop(
+        &mut self,
+        _actor_ref: kameo::actor::WeakActorRef<Self>,
+        _reason: kameo::error::ActorStopReason,
+    ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
         let id = self.id;
         async move {
             // Unregister from log registry
