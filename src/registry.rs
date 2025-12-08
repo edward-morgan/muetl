@@ -67,30 +67,6 @@ impl Registry {
         }
         None
     }
-
-    // Finds a sink with the given name; if it isn't found, Ok(None) is returned. If it is found,
-    // attempt to build it; if that errors, return Err; otherwise, return Ok(Some(sink)).
-    // pub fn build_def_for(
-    //     &self,
-    //     name: &String,
-    //     config_tpl: &TaskConfig,
-    // ) -> Result<Option<Box<dyn Sink>>, String> {
-    //     for def in &self.defs {
-    //         if def.name == *name {
-    //             let builder = match def.info {
-    //                 TaskDefInfo::DaemonDef { build_daemon, .. } => match build_daemon(config_tpl) {
-    //                     Ok(s) => Ok(Some(s)),
-    //                     Err(e) => Err(format!("failed to construct sink named {}: {}", name, e)),
-    //                 },
-    //                 TaskDefInfo::SinkDef { build_sink, .. } => match build_sink(config_tpl) {
-    //                     Ok(s) => Ok(Some(s)),
-    //                     Err(e) => Err(format!("failed to construct sink named {}: {}", name, e)),
-    //                 },
-    //             };
-    //         }
-    //     }
-    //     Ok(None)
-    // }
 }
 
 #[cfg(test)]

@@ -3,12 +3,12 @@ use std::{any::TypeId, collections::HashMap, sync::Arc};
 use kameo::Actor;
 use kameo_actors::pubsub::PubSub;
 use muetl::{
-    daemons::ticker::Ticker,
     flow::{Edge, Flow, Node, NodeRef, RawFlow},
     logging,
     registry::{Registry, TaskDefInfo, TaskInfo},
     runtime::root::Root,
     sinks::log_sink::LogSink,
+    sources::ticker::Ticker,
     system::*,
     task_defs::{ConfigField, ConfigValue, TaskConfigTpl},
 };
@@ -104,8 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting root...");
 
     // Create root with file logging enabled - logs will be written to ./logs directory
-    let root = Root::new(flow, monitor_chan)
-        .with_file_logging("./logs")?;
+    let root = Root::new(flow, monitor_chan).with_file_logging("./logs")?;
 
     let root_ref = Root::spawn(root);
     root_ref.wait_for_shutdown().await;

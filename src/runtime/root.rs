@@ -210,7 +210,7 @@ impl Actor for Root {
     /// On startup, the root should instantiate supervised actors for each of the Nodes in the validated Flow it
     /// receives when constructed.
     ///
-    /// Actors are spawned in topological order: sinks first, then nodes, then daemons.
+    /// Actors are spawned in topological order: sinks first, then nodes, then sources.
     /// This ensures that consumers are subscribed to PubSub channels before producers
     /// start emitting events, preventing race conditions where events are lost.
     async fn on_start(
@@ -220,7 +220,7 @@ impl Actor for Root {
         // Collect layers into owned data to avoid borrow conflicts
         let layers = args.partition_nodes_by_layer();
 
-        // Spawn in order: sinks, then nodes, then daemons
+        // Spawn in order: sinks, then nodes, then sources
         for layer in layers {
             for node_id in layer {
                 let node = args.flow.nodes.get(&node_id).unwrap();
