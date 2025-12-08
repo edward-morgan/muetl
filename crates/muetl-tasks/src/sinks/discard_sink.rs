@@ -1,11 +1,12 @@
 //! DiscardSink - consumes and discards all events.
 
-use std::sync::Arc;
+use std::{any::TypeId, collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use muetl::{
     messages::event::Event,
-    task_defs::{sink::Sink, MuetlSinkContext, TaskConfig, TaskDef},
+    registry::{SelfDescribing, TaskDefInfo, TaskInfo},
+    task_defs::{sink::Sink, ConfigTemplate, MuetlSinkContext, TaskConfig, TaskDef},
 };
 
 /// DiscardSink consumes all events without doing anything.
@@ -33,6 +34,26 @@ impl DiscardSink {
 }
 
 impl TaskDef for DiscardSink {}
+
+impl ConfigTemplate for DiscardSink {}
+
+impl SelfDescribing for DiscardSink {
+    fn task_info() -> TaskInfo {
+        let mut inputs = HashMap::new();
+        // DiscardSink accepts any type on "input"
+        // We'll use an empty list to indicate it accepts any type
+        inputs.insert("input".to_string(), vec![]);
+
+        TaskInfo {
+            task_id: "discard_sink".to_string(),
+            config_tpl: <Self as ConfigTemplate>::config_template(),
+            info: TaskDefInfo::SinkDef {
+                inputs,
+                build_sink: Self::new,
+            },
+        }
+    }
+}
 
 #[async_trait]
 impl Sink for DiscardSink {

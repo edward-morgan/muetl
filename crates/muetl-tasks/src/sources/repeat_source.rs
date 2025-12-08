@@ -4,11 +4,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use muetl::{
+    impl_config_template, impl_source_handler,
     messages::{event::Event, Status},
-    task_defs::{
-        source::Source, ConfigField, ConfigType, ConfigValue, MuetlContext, TaskConfig,
-        TaskConfigTpl, TaskDef,
-    },
+    task_defs::{source::Source, MuetlContext, Output, TaskConfig, TaskDef},
 };
 
 /// RepeatSource emits a fixed string value a specified number of times.
@@ -36,6 +34,10 @@ impl RepeatSource {
 
 impl TaskDef for RepeatSource {}
 
+impl Output<String> for RepeatSource {
+    const conn_name: &'static str = "output";
+}
+
 #[async_trait]
 impl Source for RepeatSource {
     async fn run(&mut self, ctx: &MuetlContext) {
@@ -56,3 +58,10 @@ impl Source for RepeatSource {
         }
     }
 }
+
+impl_source_handler!(RepeatSource, task_id = "repeat_source", "output" => String);
+impl_config_template!(
+    RepeatSource,
+    value: Str!,
+    count: Uint = 10,
+);

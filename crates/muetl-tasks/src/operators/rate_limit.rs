@@ -1,17 +1,18 @@
 //! RateLimit operator - throttles event throughput.
 
 use std::{
+    any::TypeId,
+    collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
 use muetl::{
+    impl_config_template,
     messages::event::Event,
-    task_defs::{
-        operator::Operator, ConfigField, ConfigValue, MuetlContext, TaskConfig, TaskConfigTpl,
-        TaskDef,
-    },
+    registry::{SelfDescribing, TaskDefInfo, TaskInfo},
+    task_defs::{operator::Operator, ConfigTemplate, MuetlContext, TaskConfig, TaskDef},
 };
 use tokio::time::sleep;
 
@@ -44,6 +45,26 @@ impl RateLimit {
 }
 
 impl TaskDef for RateLimit {}
+
+impl SelfDescribing for RateLimit {
+    fn task_info() -> TaskInfo {
+        let mut inputs = HashMap::new();
+        inputs.insert("input".to_string(), vec![]);
+
+        let mut outputs = HashMap::new();
+        outputs.insert("output".to_string(), vec![]);
+
+        TaskInfo {
+            task_id: "rate_limit".to_string(),
+            config_tpl: <Self as ConfigTemplate>::config_template(),
+            info: TaskDefInfo::OperatorDef {
+                inputs,
+                outputs,
+                build_operator: Self::new,
+            },
+        }
+    }
+}
 
 #[async_trait]
 impl Operator for RateLimit {
@@ -79,3 +100,8 @@ impl Operator for RateLimit {
             .unwrap();
     }
 }
+
+impl_config_template!(
+    RateLimit,
+    max_per_second: Uint = 10,
+);

@@ -15,7 +15,7 @@ use std::collections::HashSet;
 
 use async_trait::async_trait;
 use aws_sdk_s3::Client as S3Client;
-use muetl::prelude::*;
+use muetl::{impl_config_template, impl_source_handler, prelude::*};
 use regex::Regex;
 
 /// S3ListSource polls an S3 bucket for objects and emits events for new objects.
@@ -251,3 +251,18 @@ impl Source for S3ListSource {
         }
     }
 }
+
+impl_source_handler!(S3ListSource, task_id = "s3_list_source", "object" => ());
+impl_config_template!(
+    S3ListSource,
+    bucket: Str!,
+    prefix: Str,
+    region: Str,
+    endpoint: Str,
+    access_key_id: Str,
+    secret_access_key: Str,
+    key_pattern: Str,
+    exclude_pattern: Str,
+    min_size: Int,
+    max_size: Int,
+);

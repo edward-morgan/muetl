@@ -1,14 +1,13 @@
 //! Filter operator - passes through events that match header conditions.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{any::TypeId, collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use muetl::{
+    impl_config_template,
     messages::event::Event,
-    task_defs::{
-        operator::Operator, ConfigField, ConfigType, ConfigValue, MuetlContext, TaskConfig,
-        TaskConfigTpl, TaskDef,
-    },
+    registry::{SelfDescribing, TaskDefInfo, TaskInfo},
+    task_defs::{operator::Operator, ConfigTemplate, MuetlContext, TaskConfig, TaskDef},
 };
 
 /// Comparison operator for filter conditions.
@@ -126,6 +125,26 @@ impl Filter {
 
 impl TaskDef for Filter {}
 
+impl SelfDescribing for Filter {
+    fn task_info() -> TaskInfo {
+        let mut inputs = HashMap::new();
+        inputs.insert("input".to_string(), vec![]);
+
+        let mut outputs = HashMap::new();
+        outputs.insert("output".to_string(), vec![]);
+
+        TaskInfo {
+            task_id: "filter".to_string(),
+            config_tpl: <Self as ConfigTemplate>::config_template(),
+            info: TaskDefInfo::OperatorDef {
+                inputs,
+                outputs,
+                build_operator: Self::new,
+            },
+        }
+    }
+}
+
 #[async_trait]
 impl Operator for Filter {
     async fn handle_event_for_conn(
@@ -152,3 +171,11 @@ impl Operator for Filter {
         }
     }
 }
+
+impl_config_template!(
+    Filter,
+    header_key: Str!,
+    header_value: Str!,
+    op: Str = "eq",
+    invert: Bool = false,
+);

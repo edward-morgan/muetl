@@ -4,16 +4,14 @@
 //! (String, integers, floats, bools). Non-JSON inputs are automatically converted
 //! to JSON before being passed to the script.
 
-use std::cell::RefCell;
-use std::sync::Arc;
+use std::{any::TypeId, cell::RefCell, collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use muetl::{
+    impl_config_template,
     messages::event::Event,
-    task_defs::{
-        operator::Operator, ConfigField, ConfigType, MuetlContext, TaskConfig, TaskConfigTpl,
-        TaskDef,
-    },
+    registry::{SelfDescribing, TaskDefInfo, TaskInfo},
+    task_defs::{operator::Operator, ConfigTemplate, MuetlContext, TaskConfig, TaskDef},
 };
 use rquickjs::{Context, Ctx, Runtime};
 use serde_json::Value as JsonValue;
@@ -111,6 +109,40 @@ impl JavaScript {
 
 impl TaskDef for JavaScript {}
 
+impl SelfDescribing for JavaScript {
+    fn task_info() -> TaskInfo {
+        let mut inputs = HashMap::new();
+        // JavaScript accepts JsonValue and common primitive types
+        inputs.insert(
+            "input".to_string(),
+            vec![
+                TypeId::of::<JsonValue>(),
+                TypeId::of::<String>(),
+                TypeId::of::<i64>(),
+                TypeId::of::<i32>(),
+                TypeId::of::<u64>(),
+                TypeId::of::<u32>(),
+                TypeId::of::<f64>(),
+                TypeId::of::<bool>(),
+                TypeId::of::<()>(),
+            ],
+        );
+
+        let mut outputs = HashMap::new();
+        outputs.insert("output".to_string(), vec![TypeId::of::<JsonValue>()]);
+
+        TaskInfo {
+            task_id: "javascript".to_string(),
+            config_tpl: <Self as ConfigTemplate>::config_template(),
+            info: TaskDefInfo::OperatorDef {
+                inputs,
+                outputs,
+                build_operator: Self::new,
+            },
+        }
+    }
+}
+
 #[async_trait]
 impl Operator for JavaScript {
     async fn handle_event_for_conn(
@@ -191,3 +223,8 @@ fn try_serialize_common_types(data: &Arc<dyn std::any::Any + Send + Sync>) -> Op
 
     None
 }
+
+impl_config_template!(
+    JavaScript,
+    script: Str!,
+);

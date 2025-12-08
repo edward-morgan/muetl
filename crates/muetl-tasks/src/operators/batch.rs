@@ -1,7 +1,7 @@
 //! Batch operator - collects events into groups before emitting.
 
 use std::{
-    any::Any,
+    any::{Any, TypeId},
     collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
@@ -9,11 +9,10 @@ use std::{
 
 use async_trait::async_trait;
 use muetl::{
+    impl_config_template,
     messages::event::Event,
-    task_defs::{
-        operator::Operator, ConfigField, ConfigValue, MuetlContext, TaskConfig, TaskConfigTpl,
-        TaskDef,
-    },
+    registry::{SelfDescribing, TaskDefInfo, TaskInfo},
+    task_defs::{operator::Operator, ConfigTemplate, MuetlContext, TaskConfig, TaskDef},
 };
 
 /// Batch events into groups by count or time window.
@@ -83,6 +82,31 @@ impl Batch {
 
 impl TaskDef for Batch {}
 
+impl SelfDescribing for Batch {
+    fn task_info() -> TaskInfo {
+        let mut inputs = HashMap::new();
+        // Batch accepts any type on "input"
+        inputs.insert("input".to_string(), vec![]);
+
+        let mut outputs = HashMap::new();
+        // Batch outputs Vec<Arc<dyn Any + Send + Sync>> on "output"
+        outputs.insert(
+            "output".to_string(),
+            vec![TypeId::of::<Vec<Arc<dyn Any + Send + Sync>>>()],
+        );
+
+        TaskInfo {
+            task_id: "batch".to_string(),
+            config_tpl: <Self as ConfigTemplate>::config_template(),
+            info: TaskDefInfo::OperatorDef {
+                inputs,
+                outputs,
+                build_operator: Self::new,
+            },
+        }
+    }
+}
+
 #[async_trait]
 impl Operator for Batch {
     async fn handle_event_for_conn(
@@ -108,3 +132,9 @@ impl Operator for Batch {
         }
     }
 }
+
+impl_config_template!(
+    Batch,
+    max_size: Uint = 10,
+    max_wait_ms: Uint = 1000,
+);

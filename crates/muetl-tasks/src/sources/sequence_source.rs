@@ -4,10 +4,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use muetl::{
+    impl_config_template, impl_source_handler,
     messages::{event::Event, Status},
-    task_defs::{
-        source::Source, ConfigField, ConfigValue, MuetlContext, TaskConfig, TaskConfigTpl, TaskDef,
-    },
+    task_defs::{source::Source, MuetlContext, Output, TaskConfig, TaskDef},
 };
 
 /// SequenceSource emits a configurable sequence of integers.
@@ -52,6 +51,10 @@ impl SequenceSource {
 
 impl TaskDef for SequenceSource {}
 
+impl Output<i64> for SequenceSource {
+    const conn_name: &'static str = "output";
+}
+
 #[async_trait]
 impl Source for SequenceSource {
     async fn run(&mut self, ctx: &MuetlContext) {
@@ -71,3 +74,11 @@ impl Source for SequenceSource {
         }
     }
 }
+
+impl_source_handler!(SequenceSource, task_id = "sequence_source", "output" => i64);
+impl_config_template!(
+    SequenceSource,
+    start: Int = 0,
+    end: Int = 10,
+    step: Int = 1,
+);

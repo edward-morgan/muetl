@@ -7,11 +7,8 @@ use std::{
 };
 
 use muetl::{
-    impl_sink_handler,
-    task_defs::{
-        ConfigField, ConfigType, ConfigValue, MuetlSinkContext, SinkInput, TaskConfig,
-        TaskConfigTpl, TaskDef,
-    },
+    impl_config_template, impl_sink_handler,
+    task_defs::{MuetlSinkContext, SinkInput, TaskConfig, TaskDef},
 };
 
 /// FileSink writes string events to a file.
@@ -80,4 +77,10 @@ impl SinkInput<String> for FileSink {
     }
 }
 
-impl_sink_handler!(FileSink, "input" => String);
+impl_sink_handler!(FileSink, task_id = "file_sink", "input" => String);
+impl_config_template!(
+    FileSink,
+    path: Str!,
+    append: Bool = true,
+    flush_every: Uint = 1,
+);

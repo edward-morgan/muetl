@@ -1,18 +1,15 @@
 //! CronSource - emits trigger events on a cron schedule.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
 use chrono::Utc;
 use cron::Schedule;
 use muetl::{
+    impl_config_template, impl_source_handler,
     messages::{event::Event, Status},
-    task_defs::{
-        source::Source, ConfigField, ConfigType, ConfigValue, MuetlContext, TaskConfig,
-        TaskConfigTpl, TaskDef,
-    },
+    task_defs::{source::Source, MuetlContext, Output, TaskConfig, TaskDef},
 };
-use std::str::FromStr;
 
 /// CronSource emits empty trigger events according to a cron schedule.
 ///
@@ -43,6 +40,10 @@ impl CronSource {
 }
 
 impl TaskDef for CronSource {}
+
+impl Output<()> for CronSource {
+    const conn_name: &'static str = "output";
+}
 
 #[async_trait]
 impl Source for CronSource {
@@ -81,3 +82,10 @@ impl Source for CronSource {
         self.emitted += 1;
     }
 }
+
+impl_source_handler!(CronSource, task_id = "cron_source", "output" => ());
+impl_config_template!(
+    CronSource,
+    schedule: Str!,
+    count: Uint = 0,
+);

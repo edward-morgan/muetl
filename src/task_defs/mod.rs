@@ -200,39 +200,99 @@ macro_rules! impl_sink_handler {
 /// This macro simplifies creating configuration templates by generating the
 /// `ConfigTemplate` trait implementation with field definitions and defaults.
 ///
+/// # Syntax
+///
+/// Fields can be declared in three forms:
+/// - `field: Type = default` - Optional field with default value
+/// - `field: Type!` - Required field (must be provided)
+/// - `field: Type` - Optional field without default
+///
 /// # Example
 ///
 /// ```ignore
-/// struct Ticker {
-///     period: Duration,
-///     iterations: u64,
-/// }
-///
 /// impl_config_template!(
-///     Ticker,
-///     period_ms: Uint = 1000,
-///     iterations: Uint = 10,
+///     MyTask,
+///     schedule: Str!,           // Required string field
+///     count: Uint = 10,         // Optional uint with default
+///     enabled: Bool,            // Optional bool without default
 /// );
 /// ```
 #[macro_export]
 macro_rules! impl_config_template {
-    ($ty:ty, $($field:ident: $ftype:ident = $default:expr),* $(,)?) => {
+    // Main entry point
+    ($ty:ty, $($fields:tt)*) => {
         impl $crate::task_defs::ConfigTemplate for $ty {
             fn config_template() -> Option<$crate::task_defs::TaskConfigTpl> {
+                #[allow(unused_mut)]
+                let mut fields = vec![];
+                impl_config_template!(@parse_fields fields; $($fields)*);
                 Some($crate::task_defs::TaskConfigTpl {
-                    fields: vec![
-                        $(
-                            $crate::task_defs::ConfigField::with_default(
-                                stringify!($field),
-                                impl_config_template!(@value $ftype, $default)
-                            ),
-                        )*
-                    ],
+                    fields,
                     disallow_unknown_fields: true,
                 })
             }
         }
     };
+
+    // Parse field with default value
+    (@parse_fields $vec:ident; $field:ident: $ftype:ident = $default:expr, $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::with_default(
+            stringify!($field),
+            impl_config_template!(@value $ftype, $default)
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
+    // Parse required field
+    (@parse_fields $vec:ident; $field:ident: $ftype:ident!, $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::required(
+            stringify!($field),
+            impl_config_template!(@type $ftype)
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
+    // Parse optional field without default
+    (@parse_fields $vec:ident; $field:ident: $ftype:ident, $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::optional(
+            stringify!($field),
+            impl_config_template!(@type $ftype)
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
+    // Parse field with default value (last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: $ftype:ident = $default:expr) => {
+        $vec.push($crate::task_defs::ConfigField::with_default(
+            stringify!($field),
+            impl_config_template!(@value $ftype, $default)
+        ));
+    };
+
+    // Parse required field (last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: $ftype:ident!) => {
+        $vec.push($crate::task_defs::ConfigField::required(
+            stringify!($field),
+            impl_config_template!(@type $ftype)
+        ));
+    };
+
+    // Parse optional field without default (last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: $ftype:ident) => {
+        $vec.push($crate::task_defs::ConfigField::optional(
+            stringify!($field),
+            impl_config_template!(@type $ftype)
+        ));
+    };
+
+    // Base case - no more fields
+    (@parse_fields $vec:ident;) => {};
+
+    // Helper rules to convert field types to ConfigType
+    (@type Uint) => { $crate::task_defs::ConfigType::Uint };
+    (@type Int) => { $crate::task_defs::ConfigType::Int };
+    (@type Str) => { $crate::task_defs::ConfigType::Str };
+    (@type Bool) => { $crate::task_defs::ConfigType::Bool };
 
     // Helper rules to convert field types to ConfigValue
     (@value Uint, $val:expr) => {

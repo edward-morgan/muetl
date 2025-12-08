@@ -1,14 +1,13 @@
 //! Dedup operator - suppresses consecutive duplicate events.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{any::TypeId, collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use muetl::{
+    impl_config_template,
     messages::event::Event,
-    task_defs::{
-        operator::Operator, ConfigField, ConfigType, MuetlContext, TaskConfig, TaskConfigTpl,
-        TaskDef,
-    },
+    registry::{SelfDescribing, TaskDefInfo, TaskInfo},
+    task_defs::{operator::Operator, ConfigTemplate, MuetlContext, TaskConfig, TaskDef},
 };
 
 /// Dedup suppresses consecutive duplicate events based on a header value.
@@ -35,6 +34,26 @@ impl Dedup {
 }
 
 impl TaskDef for Dedup {}
+
+impl SelfDescribing for Dedup {
+    fn task_info() -> TaskInfo {
+        let mut inputs = HashMap::new();
+        inputs.insert("input".to_string(), vec![]);
+
+        let mut outputs = HashMap::new();
+        outputs.insert("output".to_string(), vec![]);
+
+        TaskInfo {
+            task_id: "dedup".to_string(),
+            config_tpl: <Self as ConfigTemplate>::config_template(),
+            info: TaskDefInfo::OperatorDef {
+                inputs,
+                outputs,
+                build_operator: Self::new,
+            },
+        }
+    }
+}
 
 #[async_trait]
 impl Operator for Dedup {
@@ -74,3 +93,8 @@ impl Operator for Dedup {
         }
     }
 }
+
+impl_config_template!(
+    Dedup,
+    dedup_key: Str!,
+);

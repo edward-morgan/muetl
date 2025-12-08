@@ -3,13 +3,14 @@
 //! Accepts any primitive type, Vec, HashMap, or unit `()` on the "input" connection.
 //! Event headers are included in the log output.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{any::TypeId, collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use muetl::messages::event::Event;
-use muetl::task_defs::sink::Sink;
-use muetl::task_defs::*;
+use muetl::{
+    messages::event::Event,
+    registry::{SelfDescribing, TaskDefInfo, TaskInfo},
+    task_defs::{sink::Sink, ConfigTemplate, MuetlSinkContext, TaskConfig, TaskDef},
+};
 use serde_json::Value as JsonValue;
 
 pub struct LogSink {}
@@ -21,6 +22,44 @@ impl LogSink {
 }
 
 impl TaskDef for LogSink {}
+
+impl ConfigTemplate for LogSink {}
+
+impl SelfDescribing for LogSink {
+    fn task_info() -> TaskInfo {
+        let mut inputs = HashMap::new();
+        // LogSink accepts any type on "input" - we'll list common ones
+        inputs.insert(
+            "input".to_string(),
+            vec![
+                TypeId::of::<String>(),
+                TypeId::of::<i64>(),
+                TypeId::of::<i32>(),
+                TypeId::of::<u64>(),
+                TypeId::of::<u32>(),
+                TypeId::of::<f64>(),
+                TypeId::of::<f32>(),
+                TypeId::of::<bool>(),
+                TypeId::of::<()>(),
+                TypeId::of::<JsonValue>(),
+                TypeId::of::<Vec<String>>(),
+                TypeId::of::<Vec<i64>>(),
+                TypeId::of::<Vec<u64>>(),
+                TypeId::of::<HashMap<String, String>>(),
+                TypeId::of::<HashMap<String, JsonValue>>(),
+            ],
+        );
+
+        TaskInfo {
+            task_id: "log_sink".to_string(),
+            config_tpl: <Self as ConfigTemplate>::config_template(),
+            info: TaskDefInfo::SinkDef {
+                inputs,
+                build_sink: Self::new,
+            },
+        }
+    }
+}
 
 #[async_trait]
 impl Sink for LogSink {
