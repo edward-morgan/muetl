@@ -17,7 +17,7 @@ use muetl::{
     runtime::root::Root,
     task_defs::{ConfigField, ConfigType, ConfigValue, TaskConfigTpl},
 };
-use muetl_tasks::{nodes::Filter, sinks::LogSink, sources::S3ListSource};
+use muetl_tasks::{operators::Filter, sinks::LogSink, sources::S3ListSource};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

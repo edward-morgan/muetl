@@ -4,6 +4,6 @@
 //! registered with a muetl runtime. These are separated from the core muetl
 //! crate to keep the core minimal and allow optional inclusion of utilities.
 
-pub mod nodes;
+pub mod operators;
 pub mod sinks;
 pub mod sources;
