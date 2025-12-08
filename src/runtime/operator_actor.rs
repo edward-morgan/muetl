@@ -4,7 +4,9 @@ use std::sync::Arc;
 use kameo::{actor::ActorRef, prelude::Message, Actor};
 use kameo_actors::pubsub::{PubSub, Publish};
 use tokio::sync::mpsc;
+use tracing::Instrument;
 
+use crate::logging::global_registry;
 use crate::messages::SystemEvent;
 use crate::runtime::connection::{IncomingConnections, OutgoingConnections};
 use crate::{
@@ -18,6 +20,8 @@ use super::event::Payload;
 
 pub struct OperatorActor {
     id: u64,
+    trace_id: u64,
+    task_name: String,
     operator: Option<Box<dyn Operator>>,
     monitor_chan: ActorRef<PubSub<StatusUpdate>>,
     /// The mapping set by the system at runtime to tell this actor which
@@ -30,14 +34,34 @@ pub struct OperatorActor {
 
 impl OperatorActor {
     pub fn new(
+        trace_id: u64,
+        task_name: String,
+        operator: Option<Box<dyn Operator>>,
+        monitor_chan: ActorRef<PubSub<StatusUpdate>>,
+        subscriptions: IncomingConnections,
+        outgoing_connections: OutgoingConnections,
+    ) -> Self {
+        Self::with_task_id(new_id(), trace_id, task_name, operator, monitor_chan, subscriptions, outgoing_connections)
+    }
+
+    pub fn with_task_id(
+        task_id: u64,
+        trace_id: u64,
+        task_name: String,
         operator: Option<Box<dyn Operator>>,
         monitor_chan: ActorRef<PubSub<StatusUpdate>>,
         subscriptions: IncomingConnections,
         outgoing_connections: OutgoingConnections,
     ) -> Self {
         let incoming_sender_ids = subscriptions.incoming_sender_ids();
+
+        // Register this task with the log registry
+        global_registry().register_task(task_id);
+
         OperatorActor {
-            id: new_id(),
+            id: task_id,
+            trace_id,
+            task_name,
             operator,
             monitor_chan,
             subscriptions,
@@ -60,7 +84,7 @@ impl Message<Arc<SystemEvent>> for OperatorActor {
         _msg: Arc<SystemEvent>,
         ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        println!("OperatorActor {} received shutdown signal", self.id);
+        tracing::info!(task_id = self.id, task_name = %self.task_name, "Operator received shutdown signal");
         ctx.stop();
     }
 }
@@ -78,7 +102,7 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                 self.active_subscriptions.remove(&msg.sender_id);
                 // If no incoming connections are active, then stop the Actor.
                 if self.should_shut_down() {
-                    println!("No incoming connections are still active; Operator will shut down.");
+                    tracing::info!(task_id = self.id, task_name = %self.task_name, "No incoming connections are still active; Operator will shut down.");
                     self.outgoing_connections.broadcast_shutdown().await;
                     ctx.stop();
                 }
@@ -102,10 +126,21 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                         let m = ev.clone();
                         let conn_name = input_conn_name.clone();
 
-                        let fut = tokio::spawn(async move {
-                            operator.handle_event_for_conn(&operator_context, &conn_name, m).await;
-                            operator
-                        });
+                        // Create span for task execution
+                        let span = tracing::info_span!(
+                            "task",
+                            trace_id = self.trace_id,
+                            task_id = self.id,
+                            task_name = %self.task_name,
+                        );
+
+                        let fut = tokio::spawn(
+                            async move {
+                                operator.handle_event_for_conn(&operator_context, &conn_name, m).await;
+                                operator
+                            }
+                            .instrument(span),
+                        );
 
                         let mut results_closed = false;
                         let mut status_closed = false;
@@ -115,10 +150,10 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                                 res = result_rx.recv(), if !results_closed => {
                                     match res {
                                         Some(result) => {
-                                            println!("Operator received result {:?}", result);
+                                            tracing::debug!(task_id = self.id, result = ?result, "Operator received result");
                                             match self.outgoing_connections.publish_to(Arc::new(result)).await {
                                                 Ok(()) => {},
-                                                Err(reason) => println!("Operator failed to produce events: {}", reason),
+                                                Err(reason) => tracing::error!(task_id = self.id, error = %reason, "Operator failed to produce events"),
                                             }
                                         },
                                         None => {
@@ -129,7 +164,7 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                                 res = status_rx.recv(), if !status_closed => {
                                     match res {
                                         Some(status) => {
-                                            println!("Operator received status {:?}", status);
+                                            tracing::debug!(task_id = self.id, status = ?status, "Operator received status");
                                             let update = StatusUpdate { status: status.clone(), id: self.id };
                                             self.monitor_chan.tell(Publish(update)).await.unwrap();
                                         },
@@ -150,7 +185,7 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                                 self.operator = Some(operator);
                             }
                             Err(e) => {
-                                println!("Operator task panicked: {:?}", e);
+                                tracing::error!(task_id = self.id, task_name = %self.task_name, error = %e, "Operator task panicked");
                                 // Send a failure message to the monitor
                                 self.monitor_chan
                                     .tell(Publish(StatusUpdate {
@@ -163,7 +198,7 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                         }
                     }
                     Err(e) => {
-                        println!("Runtime error: {}", e)
+                        tracing::error!(task_id = self.id, error = %e, "Runtime error")
                     }
                 }
             }
@@ -182,6 +217,15 @@ impl Actor for OperatorActor {
         match args.subscriptions.subscribe_to_all(actor_ref).await {
             Ok(()) => Ok(args),
             Err(e) => Err(e),
+        }
+    }
+
+    fn on_stop(&mut self, _actor_ref: kameo::actor::WeakActorRef<Self>, _reason: kameo::error::ActorStopReason) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
+        let id = self.id;
+        async move {
+            // Unregister from log registry
+            global_registry().unregister_task(id);
+            Ok(())
         }
     }
 }

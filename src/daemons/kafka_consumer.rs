@@ -91,7 +91,7 @@ impl Source for KafkaConsumer {
         {
             None => {}
             Some(Err(e)) => {
-                println!("Error consuming from kafka: {}", e.to_string());
+                tracing::error!(error = %e, "Error consuming from Kafka");
             }
             Some(Ok(m)) => {
                 ctx.results

@@ -5,6 +5,7 @@ use kameo_actors::pubsub::PubSub;
 use muetl::{
     daemons::ticker::Ticker,
     flow::{Edge, Flow, Node, NodeRef, RawFlow},
+    logging,
     registry::{Registry, TaskDefInfo, TaskInfo},
     runtime::root::Root,
     sinks::log_sink::LogSink,
@@ -14,6 +15,9 @@ use muetl::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize the logging system
+    logging::init();
+
     println!("Initializing registry...");
     // Initialize the registry with the task definitions we're using
     let mut registry = Registry::new();
@@ -98,9 +102,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
     let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
     println!("Starting root...");
-    let root = Root::new(flow, monitor_chan);
+
+    // Create root with file logging enabled - logs will be written to ./logs directory
+    let root = Root::new(flow, monitor_chan)
+        .with_file_logging("./logs")?;
+
     let root_ref = Root::spawn(root);
     root_ref.wait_for_shutdown().await;
 
+    println!("Flow complete! Check ./logs for per-task log files.");
     Ok(())
 }

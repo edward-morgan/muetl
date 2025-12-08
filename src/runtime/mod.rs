@@ -1,5 +1,6 @@
 pub mod connection;
 pub mod event;
+pub mod log_sink;
 pub mod monitor_actor;
 pub mod operator_actor;
 pub mod root;

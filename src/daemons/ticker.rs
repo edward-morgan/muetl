@@ -48,7 +48,7 @@ impl Output<u64> for Ticker {
 impl Source for Ticker {
     async fn run(&mut self, ctx: &crate::task_defs::MuetlContext) -> () {
         if self.t == self.iterations {
-            println!("Reached max iters ({})", self.t);
+            tracing::debug!(iterations = self.t, "Ticker reached max iterations");
             ctx.status
                 .send(crate::messages::Status::Finished)
                 .await

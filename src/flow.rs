@@ -166,7 +166,7 @@ impl Flow {
         if !validation_errors.is_empty() {
             Err(validation_errors)
         } else {
-            println!("Resolved Flow: {:?}", self);
+            tracing::debug!("Resolved Flow: {:?}", self);
             Ok(())
         }
     }

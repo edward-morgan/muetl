@@ -5,6 +5,7 @@ use kameo_actors::pubsub::PubSub;
 
 use crate::{
     flow::{Edge, Flow, Node, NodeRef},
+    logging::FileLogWriter,
     messages::StatusUpdate,
     registry::{Registry, TaskDefInfo, TaskInfo},
     task_defs::TaskConfig,
@@ -37,6 +38,10 @@ pub struct Root {
     /// Flow. This is primarily used when a supervised Actor dies and needs to be restarted.
     /// Note that the node mapping contains only *active* Nodes.
     actor_node_mapping: HashMap<ActorId, String>,
+    /// Optional file log writer for routing task logs to separate files.
+    file_log_writer: Option<Arc<FileLogWriter>>,
+    /// Mapping from node_id to task_id for file logging subscriptions.
+    node_task_mapping: HashMap<String, u64>,
 }
 
 impl Root {
@@ -48,7 +53,38 @@ impl Root {
             monitor_chan,
             connections: EdgeConnections::from(edges),
             actor_node_mapping: HashMap::new(),
+            file_log_writer: None,
+            node_task_mapping: HashMap::new(),
         }
+    }
+
+    /// Enable file-based logging for all tasks in this Root.
+    ///
+    /// Each task's logs will be written to a separate file in the specified directory.
+    /// Files are named `{task_name}_{task_id}.log`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use muetl::runtime::root::Root;
+    ///
+    /// let root = Root::new(flow, monitor_chan)
+    ///     .with_file_logging("./logs")?;
+    /// ```
+    pub fn with_file_logging<P: AsRef<std::path::Path>>(
+        mut self,
+        log_dir: P,
+    ) -> std::io::Result<Self> {
+        use crate::logging::global_registry;
+        let writer = FileLogWriter::new(log_dir, global_registry())?;
+        self.file_log_writer = Some(Arc::new(writer));
+        Ok(self)
+    }
+
+    /// Enable file-based logging with a custom FileLogWriter.
+    pub fn with_file_log_writer(mut self, writer: Arc<FileLogWriter>) -> Self {
+        self.file_log_writer = Some(writer);
+        self
     }
 
     /// Partition nodes into layers by their role in the graph.
@@ -82,22 +118,26 @@ impl Root {
         }
     }
 
-    /// Given a node to spawn, build it, and return the actor's ID if successful.
+    /// Given a node to spawn, build it, and return (actor_id, task_id) if successful.
     async fn spawn_actor_for_node(
         &self,
         actor_ref: &ActorRef<Root>,
         node_id: &String,
         node: &Node,
+        task_id: u64,
     ) -> Result<ActorId, String> {
         let config = self.resolve_config(node)?;
 
-        match &node.info.as_ref().unwrap().info {
+        let build_result = match &node.info.as_ref().unwrap().info {
             TaskDefInfo::SourceDef {
                 outputs: _outputs,
                 build_source,
             } => match build_source(&config) {
                 Ok(source) => {
-                    let r = SourceActor::new(
+                    let r = SourceActor::with_task_id(
+                        task_id,
+                        self.id,
+                        node_id.clone(),
                         Some(source),
                         self.monitor_chan.clone(),
                         self.connections.outgoing_connections_from(&node_id),
@@ -105,16 +145,17 @@ impl Root {
                     let r = SourceActor::spawn_link(&actor_ref, r).await;
                     Ok(r.id())
                 }
-                Err(e) => {
-                    return Err(e);
-                }
+                Err(e) => Err(e),
             },
             TaskDefInfo::SinkDef {
                 inputs: _inputs,
                 build_sink,
             } => match build_sink(&config) {
                 Ok(sink) => {
-                    let r = SinkActor::new(
+                    let r = SinkActor::with_task_id(
+                        task_id,
+                        self.id,
+                        node_id.clone(),
                         Some(sink),
                         self.monitor_chan.clone(),
                         self.connections.incoming_connections_to(node_id),
@@ -122,9 +163,7 @@ impl Root {
                     let r = SinkActor::spawn_link(&actor_ref, r).await;
                     Ok(r.id())
                 }
-                Err(e) => {
-                    return Err(e);
-                }
+                Err(e) => Err(e),
             },
             TaskDefInfo::OperatorDef {
                 inputs: _inputs,
@@ -132,7 +171,10 @@ impl Root {
                 build_operator,
             } => match build_operator(&config) {
                 Ok(operator) => {
-                    let r = OperatorActor::new(
+                    let r = OperatorActor::with_task_id(
+                        task_id,
+                        self.id,
+                        node_id.clone(),
                         Some(operator),
                         self.monitor_chan.clone(),
                         self.connections.incoming_connections_to(node_id),
@@ -141,11 +183,23 @@ impl Root {
                     let r = OperatorActor::spawn_link(&actor_ref, r).await;
                     Ok(r.id())
                 }
-                Err(e) => {
-                    return Err(e);
-                }
+                Err(e) => Err(e),
             },
+        };
+        if build_result.is_ok() {
+            // Subscribe this task to file logging if enabled
+            if let Some(ref writer) = self.file_log_writer {
+                if let Err(e) = writer.subscribe_task(task_id, node_id) {
+                    tracing::warn!(
+                        node_id = %node_id,
+                        task_id = task_id,
+                        error = %e,
+                        "Failed to subscribe task to file logging"
+                    );
+                }
+            }
         }
+        build_result
     }
 }
 
@@ -170,7 +224,14 @@ impl Actor for Root {
         for layer in layers {
             for node_id in layer {
                 let node = args.flow.nodes.get(&node_id).unwrap();
-                match args.spawn_actor_for_node(&actor_ref, &node_id, node).await {
+                // Generate a task ID for this node
+                let task_id = new_id();
+                args.node_task_mapping.insert(node_id.clone(), task_id);
+
+                match args
+                    .spawn_actor_for_node(&actor_ref, &node_id, node, task_id)
+                    .await
+                {
                     Ok(actor_id) => {
                         // Create a mapping from the actor ID to the node name in the Flow
                         args.actor_node_mapping.insert(actor_id, node_id);
@@ -188,7 +249,7 @@ impl Actor for Root {
         _actor_ref: WeakActorRef<Self>,
         _reason: ActorStopReason,
     ) -> Result<(), Self::Error> {
-        println!("Flow complete.");
+        tracing::info!(root_id = self.id, "Flow complete");
         Ok(())
     }
 
@@ -202,7 +263,10 @@ impl Actor for Root {
             ActorStopReason::Normal => match self.actor_node_mapping.remove(&id) {
                 Some(_) => {
                     if self.actor_node_mapping.is_empty() {
-                        println!("No supervised actors are still active. Root will close...");
+                        tracing::info!(
+                            root_id = self.id,
+                            "No supervised actors are still active; Root will close"
+                        );
                         Ok(ControlFlow::Break(ActorStopReason::Normal))
                     } else {
                         Ok(ControlFlow::Continue(()))
@@ -217,10 +281,21 @@ impl Actor for Root {
                 Some(node_id) => {
                     // Get the node from the flow
                     if let Some(node) = self.flow.nodes.get(node_id) {
-                        println!("Node {} was killed. Restarting...", node.task_id);
+                        // Get the existing task_id for this node (or generate a new one)
+                        let task_id = self
+                            .node_task_mapping
+                            .get(node_id)
+                            .copied()
+                            .unwrap_or_else(new_id);
+                        tracing::warn!(root_id = self.id, node_id = %node_id, task_id = task_id, "Node was killed; restarting");
                         match self
                             // TODO: Upgrading here - probably need to be safer
-                            .spawn_actor_for_node(&actor_ref.upgrade().unwrap(), node_id, node)
+                            .spawn_actor_for_node(
+                                &actor_ref.upgrade().unwrap(),
+                                node_id,
+                                node,
+                                task_id,
+                            )
                             .await
                         {
                             Ok(actor_id) => {
@@ -242,7 +317,7 @@ impl Actor for Root {
                 )),
             },
             ActorStopReason::LinkDied { id, reason } => {
-                println!("WARNING: Link with actor {} died with reason '{}'; actor is no longer supervised", id, reason);
+                tracing::warn!(root_id = self.id, actor_id = %id, reason = %reason, "Link with actor died; actor is no longer supervised");
                 Ok(ControlFlow::Continue(()))
             }
             // TODO: this is copied code from Killed above. Deduplicate?
@@ -250,12 +325,20 @@ impl Actor for Root {
                 Some(node_id) => {
                     // Get the node from the flow
                     if let Some(node) = self.flow.nodes.get(node_id) {
-                        println!(
-                            "Node {} panicked with reason '{}'. Restarting...",
-                            err, node.task_id
-                        );
+                        // Get the existing task_id for this node (or generate a new one)
+                        let task_id = self
+                            .node_task_mapping
+                            .get(node_id)
+                            .copied()
+                            .unwrap_or_else(new_id);
+                        tracing::error!(root_id = self.id, node_id = %node_id, task_id = task_id, error = %err, "Node panicked; restarting");
                         match self
-                            .spawn_actor_for_node(&actor_ref.upgrade().unwrap(), node_id, node)
+                            .spawn_actor_for_node(
+                                &actor_ref.upgrade().unwrap(),
+                                node_id,
+                                node,
+                                task_id,
+                            )
                             .await
                         {
                             Ok(actor_id) => {
@@ -286,8 +369,8 @@ struct EdgeConnections {
 
 impl From<Vec<Edge>> for EdgeConnections {
     fn from(edges: Vec<Edge>) -> Self {
-        use std::collections::HashMap;
         use crate::flow::NodeRef;
+        use std::collections::HashMap;
 
         // Group edges by their source (from NodeRef) so that fan-out edges share the same Connection/PubSub
         let mut conn_by_source: HashMap<NodeRef, Connection> = HashMap::new();

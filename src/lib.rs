@@ -1,5 +1,6 @@
 pub mod daemons;
 pub mod flow;
+pub mod logging;
 pub mod messages;
 pub mod registry;
 pub mod runtime;

@@ -104,7 +104,7 @@ impl IncomingConnections {
             match v.chan_ref.tell(Subscribe(subscriber_ref.clone())).await {
                 Ok(_) => {}
                 Err(e) => {
-                    println!("Error from subscriber: {:?}", e);
+                    tracing::error!(error = ?e, "Failed to subscribe to channel");
                     return Err(format!("failed to subscribe"));
                 }
             }

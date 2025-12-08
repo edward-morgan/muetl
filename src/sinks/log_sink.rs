@@ -14,7 +14,7 @@ impl LogSink {
 impl SinkInput<u64> for LogSink {
     const conn_name: &'static str = "input";
     async fn handle(&mut self, _ctx: &MuetlSinkContext, input: &u64) {
-        println!("[LogSink] {}", input)
+        tracing::info!(value = %input, "LogSink received");
     }
 }
 

@@ -1,13 +1,16 @@
 use std::{collections::HashMap, sync::Arc};
 
+use kameo::prelude::*;
 use kameo::{actor::ActorRef, error::Infallible, prelude::Message, Actor};
 use kameo_actors::pubsub::{PubSub, Publish};
 use tokio::{
     select,
     sync::mpsc::{self},
 };
+use tracing::Instrument;
 
 use crate::{
+    logging::global_registry,
     messages::{Status, StatusUpdate},
     runtime::connection::OutgoingConnections,
     system::util::new_id,
@@ -16,6 +19,8 @@ use crate::{
 
 pub struct SourceActor {
     id: u64,
+    trace_id: u64,
+    task_name: String,
     source: Option<Box<dyn Source>>,
     monitor_chan: ActorRef<PubSub<StatusUpdate>>,
     current_context: MuetlContext,
@@ -25,6 +30,26 @@ pub struct SourceActor {
 
 impl SourceActor {
     pub fn new(
+        trace_id: u64,
+        task_name: String,
+        source: Option<Box<dyn Source>>,
+        monitor_chan: ActorRef<PubSub<StatusUpdate>>,
+        outgoing_connections: OutgoingConnections,
+    ) -> Self {
+        Self::with_task_id(
+            new_id(),
+            trace_id,
+            task_name,
+            source,
+            monitor_chan,
+            outgoing_connections,
+        )
+    }
+
+    pub fn with_task_id(
+        task_id: u64,
+        trace_id: u64,
+        task_name: String,
         source: Option<Box<dyn Source>>,
         monitor_chan: ActorRef<PubSub<StatusUpdate>>,
         outgoing_connections: OutgoingConnections,
@@ -33,8 +58,13 @@ impl SourceActor {
         let (results_tx, _) = mpsc::channel(1);
         let (status_tx, _) = mpsc::channel(1);
 
+        // Register this task with the log registry
+        global_registry().register_task(task_id);
+
         SourceActor {
-            id: new_id(),
+            id: task_id,
+            trace_id,
+            task_name,
             source,
             monitor_chan,
             current_context: MuetlContext {
@@ -69,10 +99,21 @@ impl Message<()> for SourceActor {
         };
         let mut source = self.source.take().unwrap();
 
-        let fut = tokio::spawn(async move {
-            source.run(&source_context).await;
-            source
-        });
+        // Create span for task execution
+        let span = tracing::info_span!(
+            "task",
+            trace_id = self.trace_id,
+            task_id = self.id,
+            task_name = %self.task_name,
+        );
+
+        let fut = tokio::spawn(
+            async move {
+                source.run(&source_context).await;
+                source
+            }
+            .instrument(span),
+        );
 
         let mut should_stop = false;
         let mut results_closed = false;
@@ -85,7 +126,7 @@ impl Message<()> for SourceActor {
                         Some(result) => {
                             match self.outgoing_connections.publish_to(Arc::new(result)).await {
                                 Ok(()) => {},
-                                Err(reason) => println!("failed to produce events: {}", reason),
+                                Err(reason) => tracing::error!("failed to produce events: {}", reason),
                             }
                         },
                         None => {
@@ -114,7 +155,7 @@ impl Message<()> for SourceActor {
             }
         }
         if should_stop {
-            println!("Source is finished; exiting...");
+            tracing::info!(task_id = self.id, task_name = %self.task_name, "Source is finished; exiting...");
             self.outgoing_connections.broadcast_shutdown().await;
             ctx.stop();
         }
@@ -124,11 +165,20 @@ impl Message<()> for SourceActor {
                 // Replace the source
                 self.source = Some(source);
                 // Enqueue another iteration
-                ctx.actor_ref().tell(()).await.unwrap();
+                // Explicitly catch a full mailbox error here
+                match ctx.actor_ref().tell(()).try_send() {
+                    Ok(_) => {}
+                    Err(SendError::MailboxFull(())) => {
+                        tracing::error!(taskid = self.id, task_name = %self.task_name, "Source mailbox is full");
+                    }
+                    Err(e) => {
+                        tracing::error!(taskid =self.id, task_name = %self.task_name, "unknown error when enqueuing another iteration: {}", e);
+                    }
+                }
             }
             // Don't enqueue another iteration
             Err(e) => {
-                println!("Source task panicked: {:?}", e);
+                tracing::error!(task_id = self.id, task_name = %self.task_name, error = %e, "Source task panicked");
                 // Send a failure message to the monitor
                 self.monitor_chan
                     .tell(Publish(StatusUpdate {
@@ -146,10 +196,36 @@ impl Message<()> for SourceActor {
 
 impl Actor for SourceActor {
     type Args = Self;
-    type Error = Infallible;
+    type Error = String;
     async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         // Send a trigger message to kick off the source.
-        actor_ref.tell(()).await.unwrap();
-        Ok(args)
+        // Explicitly catch a full mailbox error here
+        match actor_ref.tell(()).try_send() {
+            Ok(_) => Ok(args),
+            Err(SendError::MailboxFull(())) => {
+                tracing::error!(taskid = args.id, task_name = %args.task_name, "mailbox is full on_start");
+                Err(format!("failed to enqueue initial source iteration"))
+            }
+            Err(e) => {
+                tracing::error!(taskid = args.id, task_name = %args.task_name, "unknown error on startup");
+                Err(format!(
+                    "unknown error occurred before initial source iteration: {}",
+                    e
+                ))
+            }
+        }
+    }
+
+    fn on_stop(
+        &mut self,
+        _actor_ref: kameo::actor::WeakActorRef<Self>,
+        _reason: kameo::error::ActorStopReason,
+    ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
+        let id = self.id;
+        async move {
+            // Unregister from log registry
+            global_registry().unregister_task(id);
+            Ok(())
+        }
     }
 }
