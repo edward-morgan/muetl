@@ -38,9 +38,55 @@ use crate::messages::{event::Event, Status};
 ///
 /// impl_operator_handler!(Adder, "input" => i64);
 /// ```
+///
+/// With the new self-describing registration system, use:
+/// ```ignore
+/// impl_operator_handler!(Adder, task_id = "adder", inputs("input" => i64), outputs("output" => i64));
+/// ```
 #[macro_export]
 macro_rules! impl_operator_handler {
+    // New pattern with task_id for self-describing registration
+    ($ty:ty, task_id = $task_id:literal, inputs($($in_conn:literal => $input_ty:ty),* $(,)?), outputs($($out_conn:literal => $output_ty:ty),* $(,)?) $(,)?) => {
+        // Generate the Operator trait implementation
+        impl_operator_handler!(@impl_trait $ty, $($in_conn => $input_ty),*);
+
+        // Generate the SelfDescribing implementation
+        impl $crate::registry::SelfDescribing for $ty {
+            fn task_info() -> $crate::registry::TaskInfo {
+                let mut inputs = ::std::collections::HashMap::new();
+                $(
+                    inputs.entry($in_conn.to_string())
+                        .or_insert_with(Vec::new)
+                        .push(::std::any::TypeId::of::<$input_ty>());
+                )*
+
+                let mut outputs = ::std::collections::HashMap::new();
+                $(
+                    outputs.entry($out_conn.to_string())
+                        .or_insert_with(Vec::new)
+                        .push(::std::any::TypeId::of::<$output_ty>());
+                )*
+
+                $crate::registry::TaskInfo {
+                    task_id: $task_id.to_string(),
+                    config_tpl: <$ty as $crate::task_defs::ConfigTemplate>::config_template(),
+                    info: $crate::registry::TaskDefInfo::OperatorDef {
+                        inputs,
+                        outputs,
+                        build_operator: <$ty>::new,
+                    },
+                }
+            }
+        }
+    };
+
+    // Old pattern for backward compatibility
     ($ty:ty, $($conn:literal => $input_ty:ty),* $(,)?) => {
+        impl_operator_handler!(@impl_trait $ty, $($conn => $input_ty),*);
+    };
+
+    // Internal rule to implement the Operator trait
+    (@impl_trait $ty:ty, $($conn:literal => $input_ty:ty),*) => {
         #[async_trait::async_trait]
         impl $crate::task_defs::operator::Operator for $ty {
             async fn handle_event_for_conn(
@@ -85,9 +131,47 @@ macro_rules! impl_operator_handler {
 ///
 /// impl_sink_handler!(MySink, "input" => String);
 /// ```
+///
+/// With the new self-describing registration system, use:
+/// ```ignore
+/// impl_sink_handler!(MySink, task_id = "my_sink", "input" => String);
+/// ```
 #[macro_export]
 macro_rules! impl_sink_handler {
+    // New pattern with task_id for self-describing registration
+    ($ty:ty, task_id = $task_id:literal, $($conn:literal => $input_ty:ty),* $(,)?) => {
+        // Generate the Sink trait implementation
+        impl_sink_handler!(@impl_trait $ty, $($conn => $input_ty),*);
+
+        // Generate the SelfDescribing implementation
+        impl $crate::registry::SelfDescribing for $ty {
+            fn task_info() -> $crate::registry::TaskInfo {
+                let mut inputs = ::std::collections::HashMap::new();
+                $(
+                    inputs.entry($conn.to_string())
+                        .or_insert_with(Vec::new)
+                        .push(::std::any::TypeId::of::<$input_ty>());
+                )*
+
+                $crate::registry::TaskInfo {
+                    task_id: $task_id.to_string(),
+                    config_tpl: <$ty as $crate::task_defs::ConfigTemplate>::config_template(),
+                    info: $crate::registry::TaskDefInfo::SinkDef {
+                        inputs,
+                        build_sink: <$ty>::new,
+                    },
+                }
+            }
+        }
+    };
+
+    // Old pattern for backward compatibility
     ($ty:ty, $($conn:literal => $input_ty:ty),* $(,)?) => {
+        impl_sink_handler!(@impl_trait $ty, $($conn => $input_ty),*);
+    };
+
+    // Internal rule to implement the Sink trait
+    (@impl_trait $ty:ty, $($conn:literal => $input_ty:ty),*) => {
         #[async_trait::async_trait]
         impl $crate::task_defs::sink::Sink for $ty {
             async fn handle_event_for_conn(
@@ -105,6 +189,111 @@ macro_rules! impl_sink_handler {
                         }
                     )*
                     _ => {}
+                }
+            }
+        }
+    };
+}
+
+/// Generates a configuration template for a TaskDef.
+///
+/// This macro simplifies creating configuration templates by generating the
+/// `ConfigTemplate` trait implementation with field definitions and defaults.
+///
+/// # Example
+///
+/// ```ignore
+/// struct Ticker {
+///     period: Duration,
+///     iterations: u64,
+/// }
+///
+/// impl_config_template!(
+///     Ticker,
+///     period_ms: Uint = 1000,
+///     iterations: Uint = 10,
+/// );
+/// ```
+#[macro_export]
+macro_rules! impl_config_template {
+    ($ty:ty, $($field:ident: $ftype:ident = $default:expr),* $(,)?) => {
+        impl $crate::task_defs::ConfigTemplate for $ty {
+            fn config_template() -> Option<$crate::task_defs::TaskConfigTpl> {
+                Some($crate::task_defs::TaskConfigTpl {
+                    fields: vec![
+                        $(
+                            $crate::task_defs::ConfigField::with_default(
+                                stringify!($field),
+                                impl_config_template!(@value $ftype, $default)
+                            ),
+                        )*
+                    ],
+                    disallow_unknown_fields: true,
+                })
+            }
+        }
+    };
+
+    // Helper rules to convert field types to ConfigValue
+    (@value Uint, $val:expr) => {
+        $crate::task_defs::ConfigValue::Uint($val)
+    };
+    (@value Int, $val:expr) => {
+        $crate::task_defs::ConfigValue::Int($val)
+    };
+    (@value Str, $val:expr) => {
+        $crate::task_defs::ConfigValue::Str($val.to_string())
+    };
+    (@value Bool, $val:expr) => {
+        $crate::task_defs::ConfigValue::Bool($val)
+    };
+}
+
+/// Generates the SelfDescribing trait implementation for a Source.
+///
+/// This macro generates the self-describing metadata for a Source TaskDef,
+/// allowing it to be automatically registered with the registry using
+/// `registry.register::<SourceType>()`.
+///
+/// # Example
+///
+/// ```ignore
+/// struct Ticker {
+///     t: u64,
+///     period: Duration,
+///     iterations: u64,
+/// }
+///
+/// impl Output<u64> for Ticker {
+///     const conn_name: &'static str = "tick";
+/// }
+///
+/// impl_source_handler!(Ticker, task_id = "ticker", "tick" => u64);
+/// impl_config_template!(
+///     Ticker,
+///     period_ms: Uint = 1000,
+///     iterations: Uint = 10,
+/// );
+/// ```
+#[macro_export]
+macro_rules! impl_source_handler {
+    ($ty:ty, task_id = $task_id:literal, $($conn:literal => $output_ty:ty),* $(,)?) => {
+        impl $crate::registry::SelfDescribing for $ty {
+            fn task_info() -> $crate::registry::TaskInfo {
+                let mut outputs = ::std::collections::HashMap::new();
+                $(
+                    outputs.entry($conn.to_string())
+                        .or_insert_with(Vec::new)
+                        .push(::std::any::TypeId::of::<$output_ty>());
+                )*
+
+                $crate::registry::TaskInfo {
+                    task_id: $task_id.to_string(),
+                    config_tpl: <$ty as $crate::task_defs::ConfigTemplate>::config_template(),
+                    info: $crate::registry::TaskDefInfo::SourceDef {
+                        outputs,
+                        build_source: <$ty>::new,
+                    },
                 }
             }
         }
@@ -131,77 +320,85 @@ macro_rules! impl_sink_handler {
 /// options, where multiple types may be produced from a single output.
 /// While the most flexible, this requires the TaskDef to produce an
 /// Event of *each* 'negotiated' type as output.
-pub enum OutputType {
-    /// The output may only be of this single type.
-    Singleton(TypeId),
-    /// The output may be exactly one of the types listed.
-    Sum(Vec<TypeId>),
-    /// The output may be any one of the types listed.
-    Product(Vec<TypeId>),
-}
-impl OutputType {
-    /// Check the given type against the OutputType, which differs
-    /// based on whether this is a sum or product type.
-    pub fn check_type(&self, against: TypeId) -> bool {
-        match self {
-            Self::Singleton(tpe) => *tpe == against,
-            Self::Sum(types) => types.contains(&against),
-            Self::Product(types) => types.contains(&against),
-        }
-    }
+// pub enum OutputType {
+//     /// The output may only be of this single type.
+//     Singleton(TypeId),
+//     /// The output may be exactly one of the types listed.
+//     Sum(Vec<TypeId>),
+//     /// The output may be any one of the types listed.
+//     Product(Vec<TypeId>),
+// }
+// impl OutputType {
+//     /// Check the given type against the OutputType, which differs
+//     /// based on whether this is a sum or product type.
+//     pub fn check_type(&self, against: TypeId) -> bool {
+//         match self {
+//             Self::Singleton(tpe) => *tpe == against,
+//             Self::Sum(types) => types.contains(&against),
+//             Self::Product(types) => types.contains(&against),
+//         }
+//     }
 
-    pub fn check_types(&self, against: Vec<TypeId>) -> bool {
-        if against.len() == 0 {
-            return false;
-        }
+//     pub fn check_types(&self, against: Vec<TypeId>) -> bool {
+//         if against.len() == 0 {
+//             return false;
+//         }
 
-        match self {
-            Self::Singleton(tpe) => against.iter().all(|&a| a == *tpe),
-            Self::Sum(types) => {
-                let to_match = against[0].type_id();
-                // Check that all types in against match, and that that single type
-                // exists in the sum type.
-                types.contains(&to_match) && against.iter().skip(1).all(|&a| a == to_match)
-            }
-            Self::Product(types) => against.iter().all(|a| types.contains(a)),
-        }
-    }
+//         match self {
+//             Self::Singleton(tpe) => against.iter().all(|&a| a == *tpe),
+//             Self::Sum(types) => {
+//                 let to_match = against[0].type_id();
+//                 // Check that all types in against match, and that that single type
+//                 // exists in the sum type.
+//                 types.contains(&to_match) && against.iter().skip(1).all(|&a| a == to_match)
+//             }
+//             Self::Product(types) => against.iter().all(|a| types.contains(a)),
+//         }
+//     }
 
-    /// Construct a new OutputType that can only be a single type.
-    pub fn singleton(of: TypeId) -> Self {
-        Self::Singleton(of)
-    }
+//     /// Construct a new OutputType that can only be a single type.
+//     pub fn singleton(of: TypeId) -> Self {
+//         Self::Singleton(of)
+//     }
 
-    pub fn singleton_of<T: 'static>() -> Self {
-        Self::Singleton(TypeId::of::<T>())
-    }
+//     pub fn singleton_of<T: 'static>() -> Self {
+//         Self::Singleton(TypeId::of::<T>())
+//     }
 
-    /// Construct a new OutputType that can be a single type among a
-    /// set of choices.
-    pub fn one_of(choices: Vec<TypeId>) -> Self {
-        Self::Sum(choices)
-    }
+//     /// Construct a new OutputType that can be a single type among a
+//     /// set of choices.
+//     pub fn one_of(choices: Vec<TypeId>) -> Self {
+//         Self::Sum(choices)
+//     }
 
-    /// Construct a new OutputType that can be any one of types in a
-    /// set of choices.
-    pub fn any_of(choices: Vec<TypeId>) -> Self {
-        Self::Product(choices)
-    }
-}
-impl Debug for OutputType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Singleton(tpe) => f.debug_set().entry(tpe).finish(),
-            Self::Product(types) => f.debug_set().entries(types).finish(),
-            Self::Sum(types) => f.debug_set().entries(types).finish(),
-        }
-    }
-}
+//     /// Construct a new OutputType that can be any one of types in a
+//     /// set of choices.
+//     pub fn any_of(choices: Vec<TypeId>) -> Self {
+//         Self::Product(choices)
+//     }
+// }
+// impl Debug for OutputType {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         match self {
+//             Self::Singleton(tpe) => f.debug_set().entry(tpe).finish(),
+//             Self::Product(types) => f.debug_set().entries(types).finish(),
+//             Self::Sum(types) => f.debug_set().entries(types).finish(),
+//         }
+//     }
+// }
 
 /// A TaskDef represents any process that is executed by muetl.
 pub trait TaskDef {
     fn deinit(&mut self) -> Result<(), String> {
         Ok(())
+    }
+}
+
+/// A trait for TaskDefs to optionally provide their configuration template.
+/// This is used by the self-describing registration system.
+pub trait ConfigTemplate {
+    fn config_template() -> Option<TaskConfigTpl> {
+        None
     }
 }
 

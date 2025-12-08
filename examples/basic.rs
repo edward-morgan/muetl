@@ -1,13 +1,13 @@
-use std::{any::TypeId, collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use kameo::Actor;
 use kameo_actors::pubsub::PubSub;
 use muetl::{
     flow::{Edge, Flow, Node, NodeRef, RawFlow},
-    impl_sink_handler, logging,
+    impl_config_template, impl_sink_handler, impl_source_handler, logging,
     messages::event::Event,
-    registry::{Registry, TaskDefInfo, TaskInfo},
+    registry::Registry,
     runtime::root::Root,
     system::*,
     task_defs::{sink::Sink, source::Source, *},
@@ -31,7 +31,9 @@ impl SinkInput<u64> for LogSink {
 
 impl TaskDef for LogSink {}
 
-impl_sink_handler!(LogSink, "input" => u64);
+impl ConfigTemplate for LogSink {}
+
+impl_sink_handler!(LogSink, task_id = "log_sink", "input" => u64);
 
 pub struct Ticker {
     t: u64,
@@ -82,6 +84,13 @@ impl Source for Ticker {
     }
 }
 
+impl_source_handler!(Ticker, task_id = "ticker", "tick" => u64);
+impl_config_template!(
+    Ticker,
+    period_ms: Uint = 1000,
+    iterations: Uint = 10,
+);
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize the logging system
@@ -90,36 +99,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Initializing registry...");
     // Initialize the registry with the task definitions we're using
     let mut registry = Registry::new();
-    let mut log_sink_inputs = HashMap::new();
-    log_sink_inputs.insert(
-        "input".to_string(),
-        vec![TypeId::of::<String>(), TypeId::of::<u64>()],
-    );
-    registry.add_def(TaskInfo {
-        task_id: "log_sink".to_string(),
-        config_tpl: None,
-        info: TaskDefInfo::SinkDef {
-            inputs: log_sink_inputs,
-            build_sink: LogSink::new,
-        },
-    });
-
-    let mut ticker_outputs = HashMap::new();
-    ticker_outputs.insert("tick".to_string(), vec![TypeId::of::<u64>()]);
-    registry.add_def(TaskInfo {
-        task_id: "ticker".to_string(),
-        config_tpl: Some(TaskConfigTpl {
-            fields: vec![
-                ConfigField::with_default("period_ms", ConfigValue::Uint(1000)),
-                ConfigField::with_default("iterations", ConfigValue::Uint(10)),
-            ],
-            disallow_unknown_fields: true,
-        }),
-        info: TaskDefInfo::SourceDef {
-            outputs: ticker_outputs,
-            build_source: Ticker::new,
-        },
-    });
+    registry.register::<LogSink>();
+    registry.register::<Ticker>();
 
     println!("Creating raw flow...");
     let mut cfg1 = HashMap::<String, ConfigValue>::new();
