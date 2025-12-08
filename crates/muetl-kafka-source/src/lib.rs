@@ -1,18 +1,10 @@
-use std::any::TypeId;
-use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 
-use crate::messages::event::Event;
-use crate::task_defs::source::Source;
-use crate::task_defs::{
-    ConfigField, ConfigType, MuetlContext, Output, OutputType, RegisteredType, TaskConfigTpl,
-    TaskDef,
-};
-use async_trait::async_trait;
 use rdkafka::consumer::BaseConsumer;
 use rdkafka::message::OwnedMessage;
 use rdkafka::util::Timeout;
+
+use muetl::prelude::*;
 
 pub struct KafkaConsumer {
     consumer: Option<BaseConsumer>,
@@ -46,7 +38,7 @@ impl TaskDef for KafkaConsumer {
     //         consumer: Some(consumer),
     //     }))
     // }
-    fn task_config_tpl(&self) -> Option<crate::task_defs::TaskConfigTpl> {
+    fn task_config_tpl(&self) -> Option<TaskConfigTpl> {
         Some(TaskConfigTpl {
             fields: vec![
                 ConfigField::required("bootstrap.servers", ConfigType::Str),

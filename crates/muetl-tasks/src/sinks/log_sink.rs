@@ -1,12 +1,10 @@
-use crate::{
-    impl_sink_handler,
-    task_defs::{MuetlSinkContext, SinkInput, TaskConfig, TaskDef},
-};
+use muetl::task_defs::sink::Sink;
+use muetl::{impl_sink_handler, task_defs::*};
 
 pub struct LogSink {}
 
 impl LogSink {
-    pub fn new(_config: &TaskConfig) -> Result<Box<dyn crate::task_defs::sink::Sink>, String> {
+    pub fn new(_config: &TaskConfig) -> Result<Box<dyn Sink>, String> {
         Ok(Box::new(LogSink {}))
     }
 }

@@ -1,0 +1,11 @@
+[package]
+name = "muetl-kafka-source"
+version = "0.1.0"
+edition = "2024"
+description = "Example muetl Source that reads messages from Kafka"
+
+[dependencies]
+async-trait = "0.1.89"
+rdkafka = { version = "0.38.0", features = ["cmake-build"] }
+muetl = { path = "../.." }
+tracing = "0.1.43"
