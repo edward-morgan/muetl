@@ -54,17 +54,6 @@ impl FileSink {
 }
 
 impl TaskDef for FileSink {
-    fn task_config_tpl(&self) -> Option<TaskConfigTpl> {
-        Some(TaskConfigTpl {
-            fields: vec![
-                ConfigField::required("path", ConfigType::Str),
-                ConfigField::with_default("append", ConfigValue::Bool(true)),
-                ConfigField::with_default("flush_every", ConfigValue::Uint(1)),
-            ],
-            disallow_unknown_fields: true,
-        })
-    }
-
     fn deinit(&mut self) -> Result<(), String> {
         if let Some(ref mut writer) = self.writer {
             writer

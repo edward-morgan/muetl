@@ -81,17 +81,7 @@ impl Batch {
     }
 }
 
-impl TaskDef for Batch {
-    fn task_config_tpl(&self) -> Option<TaskConfigTpl> {
-        Some(TaskConfigTpl {
-            fields: vec![
-                ConfigField::with_default("max_size", ConfigValue::Uint(10)),
-                ConfigField::with_default("max_wait_ms", ConfigValue::Uint(1000)),
-            ],
-            disallow_unknown_fields: true,
-        })
-    }
-}
+impl TaskDef for Batch {}
 
 #[async_trait]
 impl Operator for Batch {

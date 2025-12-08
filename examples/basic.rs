@@ -48,16 +48,6 @@ impl Ticker {
     }
 }
 impl TaskDef for Ticker {
-    fn task_config_tpl(&self) -> Option<crate::task_defs::TaskConfigTpl> {
-        Some(TaskConfigTpl {
-            fields: vec![
-                ConfigField::with_default("period_ms", ConfigValue::Uint(1000)),
-                ConfigField::with_default("iterations", ConfigValue::Uint(10)),
-            ],
-            disallow_unknown_fields: true,
-        })
-    }
-
     fn deinit(&mut self) -> Result<(), String> {
         Ok(())
     }

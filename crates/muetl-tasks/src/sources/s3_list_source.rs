@@ -183,27 +183,7 @@ impl S3ListSource {
     }
 }
 
-impl TaskDef for S3ListSource {
-    fn task_config_tpl(&self) -> Option<TaskConfigTpl> {
-        Some(TaskConfigTpl {
-            fields: vec![
-                ConfigField::required("bucket", ConfigType::Str),
-                ConfigField::optional("prefix", ConfigType::Str),
-                ConfigField::optional("region", ConfigType::Str),
-                ConfigField::optional("endpoint", ConfigType::Str),
-                ConfigField::optional("access_key_id", ConfigType::Str),
-                ConfigField::optional("secret_access_key", ConfigType::Str),
-                // Filter options
-                ConfigField::optional("extensions", ConfigType::Arr(Box::new(ConfigType::Str))),
-                ConfigField::optional("min_size", ConfigType::Int),
-                ConfigField::optional("max_size", ConfigType::Int),
-                ConfigField::optional("key_pattern", ConfigType::Str),
-                ConfigField::optional("exclude_pattern", ConfigType::Str),
-            ],
-            disallow_unknown_fields: true,
-        })
-    }
-}
+impl TaskDef for S3ListSource {}
 
 impl Output<()> for S3ListSource {
     const conn_name: &'static str = "object";

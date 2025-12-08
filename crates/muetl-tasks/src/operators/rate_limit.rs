@@ -43,17 +43,7 @@ impl RateLimit {
     }
 }
 
-impl TaskDef for RateLimit {
-    fn task_config_tpl(&self) -> Option<TaskConfigTpl> {
-        Some(TaskConfigTpl {
-            fields: vec![ConfigField::with_default(
-                "max_per_second",
-                ConfigValue::Uint(10),
-            )],
-            disallow_unknown_fields: true,
-        })
-    }
-}
+impl TaskDef for RateLimit {}
 
 #[async_trait]
 impl Operator for RateLimit {

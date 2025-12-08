@@ -124,19 +124,7 @@ impl Filter {
     }
 }
 
-impl TaskDef for Filter {
-    fn task_config_tpl(&self) -> Option<TaskConfigTpl> {
-        Some(TaskConfigTpl {
-            fields: vec![
-                ConfigField::required("header_key", ConfigType::Str),
-                ConfigField::required("header_value", ConfigType::Str),
-                ConfigField::with_default("op", ConfigValue::Str("eq".to_string())),
-                ConfigField::with_default("invert", ConfigValue::Bool(false)),
-            ],
-            disallow_unknown_fields: true,
-        })
-    }
-}
+impl TaskDef for Filter {}
 
 #[async_trait]
 impl Operator for Filter {

@@ -34,17 +34,7 @@ impl RepeatSource {
     }
 }
 
-impl TaskDef for RepeatSource {
-    fn task_config_tpl(&self) -> Option<TaskConfigTpl> {
-        Some(TaskConfigTpl {
-            fields: vec![
-                ConfigField::required("value", ConfigType::Str),
-                ConfigField::with_default("count", ConfigValue::Uint(10)),
-            ],
-            disallow_unknown_fields: true,
-        })
-    }
-}
+impl TaskDef for RepeatSource {}
 
 #[async_trait]
 impl Source for RepeatSource {

@@ -6,8 +6,7 @@ use async_trait::async_trait;
 use muetl::{
     messages::{event::Event, Status},
     task_defs::{
-        source::Source, ConfigField, ConfigValue, MuetlContext, TaskConfig, TaskConfigTpl,
-        TaskDef,
+        source::Source, ConfigField, ConfigValue, MuetlContext, TaskConfig, TaskConfigTpl, TaskDef,
     },
 };
 
@@ -51,18 +50,7 @@ impl SequenceSource {
     }
 }
 
-impl TaskDef for SequenceSource {
-    fn task_config_tpl(&self) -> Option<TaskConfigTpl> {
-        Some(TaskConfigTpl {
-            fields: vec![
-                ConfigField::with_default("start", ConfigValue::Int(0)),
-                ConfigField::with_default("end", ConfigValue::Int(10)),
-                ConfigField::with_default("step", ConfigValue::Int(1)),
-            ],
-            disallow_unknown_fields: true,
-        })
-    }
-}
+impl TaskDef for SequenceSource {}
 
 #[async_trait]
 impl Source for SequenceSource {

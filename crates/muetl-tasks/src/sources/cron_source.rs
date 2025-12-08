@@ -42,17 +42,7 @@ impl CronSource {
     }
 }
 
-impl TaskDef for CronSource {
-    fn task_config_tpl(&self) -> Option<TaskConfigTpl> {
-        Some(TaskConfigTpl {
-            fields: vec![
-                ConfigField::required("schedule", ConfigType::Str),
-                ConfigField::with_default("count", ConfigValue::Uint(0)),
-            ],
-            disallow_unknown_fields: true,
-        })
-    }
-}
+impl TaskDef for CronSource {}
 
 #[async_trait]
 impl Source for CronSource {

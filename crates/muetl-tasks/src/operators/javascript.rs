@@ -100,10 +100,7 @@ impl JavaScript {
 
             // Execute the user's script wrapped to capture the result
             let result: String = ctx
-                .eval(format!(
-                    "JSON.stringify((function() {{ {} }})())",
-                    script
-                ))
+                .eval(format!("JSON.stringify((function() {{ {} }})())", script))
                 .map_err(|e| format!("script execution failed: {}", e))?;
 
             // Parse the JSON result
@@ -112,14 +109,7 @@ impl JavaScript {
     }
 }
 
-impl TaskDef for JavaScript {
-    fn task_config_tpl(&self) -> Option<TaskConfigTpl> {
-        Some(TaskConfigTpl {
-            fields: vec![ConfigField::required("script", ConfigType::Str)],
-            disallow_unknown_fields: true,
-        })
-    }
-}
+impl TaskDef for JavaScript {}
 
 #[async_trait]
 impl Operator for JavaScript {

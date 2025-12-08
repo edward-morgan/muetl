@@ -17,15 +17,6 @@ impl KafkaConsumer {
 }
 
 impl TaskDef for KafkaConsumer {
-    fn task_config_tpl(&self) -> Option<TaskConfigTpl> {
-        Some(TaskConfigTpl {
-            fields: vec![
-                ConfigField::required("bootstrap.servers", ConfigType::Str),
-                ConfigField::required("input.topic", ConfigType::Str),
-            ],
-            disallow_unknown_fields: false,
-        })
-    }
 
     fn deinit(&mut self) -> Result<(), String> {
         Ok(())

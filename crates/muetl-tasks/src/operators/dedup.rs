@@ -34,14 +34,7 @@ impl Dedup {
     }
 }
 
-impl TaskDef for Dedup {
-    fn task_config_tpl(&self) -> Option<TaskConfigTpl> {
-        Some(TaskConfigTpl {
-            fields: vec![ConfigField::required("dedup_key", ConfigType::Str)],
-            disallow_unknown_fields: true,
-        })
-    }
-}
+impl TaskDef for Dedup {}
 
 #[async_trait]
 impl Operator for Dedup {
