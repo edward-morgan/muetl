@@ -6,7 +6,7 @@
 //! The S3ListSource passes metadata (bucket, key, size, etag, last_modified)
 //! as event headers, which LogSink will display.
 
-use std::{any::TypeId, collections::HashMap, env, sync::Arc};
+use std::{collections::HashMap, env, sync::Arc};
 
 use kameo::{
     actor::{ActorRef, Spawn},
@@ -16,11 +16,10 @@ use kameo_actors::pubsub::PubSub;
 use muetl::{
     flow::{Edge, Flow, Node, NodeRef, RawFlow},
     logging,
-    registry::{Registry, TaskDefInfo, TaskInfo},
+    registry::Registry,
     runtime::root::Root,
-    task_defs::{ConfigField, ConfigType, ConfigValue, TaskConfigTpl},
+    task_defs::ConfigValue,
 };
-use muetl_tasks::{operators::Filter, sinks::LogSink, sources::S3ListSource};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,70 +28,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Setting up S3 bucket listener for CSV files...");
 
-    // Initialize the registry with task definitions
+    // Initialize the registry with all muetl-tasks
     let mut registry = Registry::new();
-
-    // Register S3ListSource
-    let mut s3_outputs = HashMap::new();
-    s3_outputs.insert("object".to_string(), vec![TypeId::of::<()>()]);
-    registry.add_def(TaskInfo {
-        task_id: "s3_list_source".to_string(),
-        config_tpl: Some(TaskConfigTpl {
-            fields: vec![
-                ConfigField::required("bucket", ConfigType::Str),
-                ConfigField::optional("prefix", ConfigType::Str),
-                ConfigField::optional("region", ConfigType::Str),
-                ConfigField::optional("extensions", ConfigType::Arr(Box::new(ConfigType::Str))),
-                ConfigField::optional("min_size", ConfigType::Int),
-                ConfigField::optional("max_size", ConfigType::Int),
-                ConfigField::optional("key_pattern", ConfigType::Str),
-                ConfigField::optional("endpoint", ConfigType::Str),
-                ConfigField::optional("exclude_pattern", ConfigType::Str),
-                ConfigField::optional("access_key_id", ConfigType::Str),
-                ConfigField::optional("secret_access_key", ConfigType::Str),
-            ],
-            disallow_unknown_fields: true,
-        }),
-        info: TaskDefInfo::SourceDef {
-            outputs: s3_outputs,
-            build_source: S3ListSource::new,
-        },
-    });
-
-    // Register Filter
-    let mut filter_inputs = HashMap::new();
-    filter_inputs.insert("input".to_string(), vec![TypeId::of::<()>()]);
-    let mut filter_outputs = HashMap::new();
-    filter_outputs.insert("output".to_string(), vec![TypeId::of::<()>()]);
-    registry.add_def(TaskInfo {
-        task_id: "filter".to_string(),
-        config_tpl: Some(TaskConfigTpl {
-            fields: vec![
-                ConfigField::required("header_key", ConfigType::Str),
-                ConfigField::required("header_value", ConfigType::Str),
-                ConfigField::with_default("op", ConfigValue::Str("eq".to_string())),
-                ConfigField::with_default("invert", ConfigValue::Bool(false)),
-            ],
-            disallow_unknown_fields: true,
-        }),
-        info: TaskDefInfo::OperatorDef {
-            inputs: filter_inputs,
-            outputs: filter_outputs,
-            build_operator: Filter::new,
-        },
-    });
-
-    // Register LogSink
-    let mut log_sink_inputs = HashMap::new();
-    log_sink_inputs.insert("input".to_string(), vec![TypeId::of::<()>()]);
-    registry.add_def(TaskInfo {
-        task_id: "log_sink".to_string(),
-        config_tpl: None,
-        info: TaskDefInfo::SinkDef {
-            inputs: log_sink_inputs,
-            build_sink: LogSink::new,
-        },
-    });
+    muetl_tasks::register_all(&mut registry);
 
     // Configure S3ListSource to watch df-bucket for CSV files
     let mut s3_config = HashMap::<String, ConfigValue>::new();
@@ -134,19 +72,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         nodes: vec![
             Node {
                 node_id: "s3_source".to_string(),
-                task_id: "s3_list_source".to_string(),
+                task_id: "urn:rdp:transformer:muetl:s3_list_source".to_string(),
                 configuration: s3_config,
                 info: None,
             },
             Node {
                 node_id: "size_filter".to_string(),
-                task_id: "filter".to_string(),
+                task_id: "urn:rdp:transformer:muetl:filter".to_string(),
                 configuration: filter_config,
                 info: None,
             },
             Node {
                 node_id: "logger".to_string(),
-                task_id: "log_sink".to_string(),
+                task_id: "urn:rdp:transformer:muetl:log_sink".to_string(),
                 configuration: HashMap::new(),
                 info: None,
             },

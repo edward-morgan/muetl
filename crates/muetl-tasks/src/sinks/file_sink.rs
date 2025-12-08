@@ -77,7 +77,7 @@ impl SinkInput<String> for FileSink {
     }
 }
 
-impl_sink_handler!(FileSink, task_id = "file_sink", "input" => String);
+impl_sink_handler!(FileSink, task_id = "urn:rdp:transformer:muetl:file_sink", "input" => String);
 impl_config_template!(
     FileSink,
     path: Str!,

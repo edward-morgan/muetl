@@ -83,7 +83,7 @@ impl Source for CronSource {
     }
 }
 
-impl_source_handler!(CronSource, task_id = "cron_source", "output" => ());
+impl_source_handler!(CronSource, task_id = "urn:rdp:transformer:muetl:cron_source", "output" => ());
 impl_config_template!(
     CronSource,
     schedule: Str!,

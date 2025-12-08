@@ -75,7 +75,7 @@ impl Source for SequenceSource {
     }
 }
 
-impl_source_handler!(SequenceSource, task_id = "sequence_source", "output" => i64);
+impl_source_handler!(SequenceSource, task_id = "urn:rdp:transformer:muetl:sequence_source", "output" => i64);
 impl_config_template!(
     SequenceSource,
     start: Int = 0,

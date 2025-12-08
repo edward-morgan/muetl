@@ -51,7 +51,7 @@ impl SelfDescribing for LogSink {
         );
 
         TaskInfo {
-            task_id: "log_sink".to_string(),
+            task_id: "urn:rdp:transformer:muetl:log_sink".to_string(),
             config_tpl: <Self as ConfigTemplate>::config_template(),
             info: TaskDefInfo::SinkDef {
                 inputs,

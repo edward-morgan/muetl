@@ -132,7 +132,7 @@ impl SelfDescribing for JavaScript {
         outputs.insert("output".to_string(), vec![TypeId::of::<JsonValue>()]);
 
         TaskInfo {
-            task_id: "javascript".to_string(),
+            task_id: "urn:rdp:transformer:muetl:javascript".to_string(),
             config_tpl: <Self as ConfigTemplate>::config_template(),
             info: TaskDefInfo::OperatorDef {
                 inputs,
