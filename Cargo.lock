@@ -1720,6 +1720,8 @@ dependencies = [
  "kameo_actors",
  "muetl-tasks",
  "once_cell",
+ "serde",
+ "serde_json",
  "tokio",
  "tokio-stream",
  "tracing",

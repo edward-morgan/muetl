@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::{any::TypeId, collections::HashMap, fmt::Display, hash::Hash, sync::Arc};
 
 use crate::{
@@ -8,9 +9,38 @@ use crate::{
 
 type ValidationResult = Result<(), Vec<String>>;
 
+#[derive(Serialize, Deserialize)]
 pub struct RawFlow {
-    pub nodes: Vec<Node>,
-    pub edges: Vec<Edge>,
+    pub nodes: Vec<RawNode>,
+    pub edges: Vec<RawEdge>,
+}
+
+#[derive(Serialize, Deserialize)]
+/// The raw, unparsed representation of a node in a flow.
+pub struct RawNode {
+    /// The internal identifier of this Node as it relates to Edges in the Flow.
+    pub node_id: String,
+    /// The identifier of the Task that this Node coresponds to.
+    pub task_id: String,
+    /// The raw runtime configuration being supplied to this Node. Note that this will be
+    /// validated at runtime against the template advertised by the Node, and an error
+    /// may be returned if the provided configuration does not match what is required.
+    pub configuration: HashMap<String, ConfigValue>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+/// The raw, unparsed representation of an edge in a flow.
+pub struct RawEdge {
+    /// The source (node ID and conn name) of the edge.
+    pub from: NodeRef,
+    /// The target (node ID and conn name) of the edge.
+    pub to: NodeRef,
+}
+
+impl Display for RawEdge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[from: {}, to: {}]", self.from, self.to)
+    }
 }
 
 /// The validated version of a RawFlow, parsed from a RawFlow.
@@ -52,7 +82,7 @@ impl Flow {
     fn parse_structure(value: RawFlow) -> Result<Self, String> {
         let mut hm = HashMap::new();
         for raw_node in value.nodes {
-            match hm.insert(raw_node.node_id.clone(), raw_node) {
+            match hm.insert(raw_node.node_id.clone(), Node::from(raw_node)) {
                 Some(prev) => {
                     return Err(format!(
                         "invalid flow: node id {} is duplicated",
@@ -78,7 +108,7 @@ impl Flow {
         }
         Ok(Flow {
             nodes: hm,
-            edges: value.edges,
+            edges: value.edges.iter().map(|e| Edge::from(e.clone())).collect(),
         })
     }
 
@@ -206,10 +236,21 @@ pub struct Node {
     pub info: Option<Arc<TaskInfo>>,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug, Serialize, Deserialize)]
 pub struct NodeRef {
     pub node_id: String,
     pub conn_name: String,
+}
+
+impl From<RawNode> for Node {
+    fn from(raw_node: RawNode) -> Self {
+        Self {
+            node_id: raw_node.node_id,
+            task_id: raw_node.task_id,
+            configuration: raw_node.configuration,
+            info: None,
+        }
+    }
 }
 
 impl NodeRef {
@@ -241,6 +282,17 @@ impl Display for Edge {
         write!(f, "[from: {}, to: {}]", self.from, self.to)
     }
 }
+
+impl From<RawEdge> for Edge {
+    fn from(raw_edge: RawEdge) -> Self {
+        Self {
+            from: raw_edge.from,
+            to: raw_edge.to,
+            edge_type: None,
+        }
+    }
+}
+
 impl Edge {
     /// Convert an Edge into a Connection. Since a Flow is validated upon construction, we can assume that the Edge's
     /// `to` and `from` references are valid, and that TaskInfo records exist in the Registry for each Node.
@@ -265,23 +317,20 @@ mod tests {
         let node1_name = "node-1".to_string();
         let node2_name = "node-2".to_string();
         let nodes = vec![
-            Node {
+            RawNode {
                 node_id: node1_name.clone(),
                 task_id: "one".to_string(),
                 configuration: HashMap::new(),
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: node2_name.clone(),
                 task_id: "two".to_string(),
                 configuration: HashMap::new(),
-                info: None,
             },
         ];
-        let edges = vec![Edge {
+        let edges = vec![RawEdge {
             from: NodeRef::new("nonexistent".to_string(), "output-1".to_string()), // BAD
             to: NodeRef::new(node2_name.clone(), "input-1".to_string()),
-            edge_type: None,
         }];
 
         let raw_flow = RawFlow { nodes, edges };
@@ -295,23 +344,20 @@ mod tests {
         let node1_name = "node-1".to_string();
         let node2_name = "node-2".to_string();
         let nodes = vec![
-            Node {
+            RawNode {
                 node_id: node1_name.clone(),
                 task_id: "one".to_string(),
                 configuration: HashMap::new(),
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: node1_name.clone(), // BAD
                 task_id: "two".to_string(),
                 configuration: HashMap::new(),
-                info: None,
             },
         ];
-        let edges = vec![Edge {
+        let edges = vec![RawEdge {
             from: NodeRef::new(node1_name, "output-1".to_string()),
             to: NodeRef::new(node2_name.clone(), "input-1".to_string()),
-            edge_type: None,
         }];
 
         let raw_flow = RawFlow { nodes, edges };
@@ -325,23 +371,20 @@ mod tests {
         let node1_name = "node-1".to_string();
         let node2_name = "node-2".to_string();
         let nodes = vec![
-            Node {
+            RawNode {
                 node_id: node1_name.clone(),
                 task_id: "one".to_string(),
                 configuration: HashMap::new(),
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: node2_name.clone(),
                 task_id: "two".to_string(),
                 configuration: HashMap::new(),
-                info: None,
             },
         ];
-        let edges = vec![Edge {
+        let edges = vec![RawEdge {
             from: NodeRef::new(node1_name, "output-1".to_string()),
             to: NodeRef::new("nonexistent".to_string(), "input-1".to_string()), // BAD
-            edge_type: None,
         }];
 
         let raw_flow = RawFlow { nodes, edges };
@@ -354,28 +397,100 @@ mod tests {
         let node1_name = "node-1".to_string();
         let node2_name = "node-2".to_string();
         let nodes = vec![
-            Node {
+            RawNode {
                 node_id: node1_name.clone(),
                 task_id: "one".to_string(),
                 configuration: HashMap::new(),
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: node2_name.clone(),
                 task_id: "two".to_string(),
                 configuration: HashMap::new(),
-                info: None,
             },
         ];
-        let edges = vec![Edge {
+        let edges = vec![RawEdge {
             from: NodeRef::new("nonexistent".to_string(), "output-1".to_string()),
             to: NodeRef::new(node2_name, "input-1".to_string()), // BAD
-            edge_type: None,
         }];
 
         let raw_flow = RawFlow { nodes, edges };
         let f = Flow::parse_structure(raw_flow);
         println!("RawFlow result: {:?}", f);
+        assert!(f.is_err());
+    }
+
+    #[test]
+    fn test_raw_flow_from_json_valid() {
+        let json = r#"
+        {
+            "nodes": [
+                {
+                    "node_id": "source-1",
+                    "task_id": "sequence_source",
+                    "configuration": {}
+                },
+                {
+                    "node_id": "sink-1",
+                    "task_id": "log_sink",
+                    "configuration": {}
+                }
+            ],
+            "edges": [
+                {
+                    "from": {
+                        "node_id": "source-1",
+                        "conn_name": "output"
+                    },
+                    "to": {
+                        "node_id": "sink-1",
+                        "conn_name": "input"
+                    }
+                }
+            ]
+        }
+        "#;
+
+        let raw_flow: RawFlow = serde_json::from_str(json).expect("Failed to parse JSON");
+        let f = Flow::parse_structure(raw_flow);
+        println!("RawFlow from JSON result: {:?}", f);
+        assert!(f.is_ok());
+
+        let flow = f.unwrap();
+        assert_eq!(flow.nodes.len(), 2);
+        assert_eq!(flow.edges.len(), 1);
+        assert!(flow.nodes.contains_key("source-1"));
+        assert!(flow.nodes.contains_key("sink-1"));
+    }
+
+    #[test]
+    fn test_raw_flow_from_json_invalid() {
+        let json = r#"
+        {
+            "nodes": [
+                {
+                    "node_id": "source-1",
+                    "task_id": "sequence_source",
+                    "configuration": {}
+                }
+            ],
+            "edges": [
+                {
+                    "from": {
+                        "node_id": "source-1",
+                        "conn_name": "output"
+                    },
+                    "to": {
+                        "node_id": "nonexistent-node",
+                        "conn_name": "input"
+                    }
+                }
+            ]
+        }
+        "#;
+
+        let raw_flow: RawFlow = serde_json::from_str(json).expect("Failed to parse JSON");
+        let f = Flow::parse_structure(raw_flow);
+        println!("Invalid RawFlow from JSON result: {:?}", f);
         assert!(f.is_err());
     }
 }

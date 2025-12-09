@@ -8,6 +8,7 @@ use std::{
     fmt::Debug,
 };
 
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Sender;
 
 use crate::messages::{event::Event, Status};
@@ -498,7 +499,7 @@ pub struct RegisteredType {
 
 /// A particular configuration property that a TaskDef looks for. At runtime, the template
 /// will be processed, and a `TaskConfig` will be returned.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TaskConfigTpl {
     /// Single configuration fields. `name` must be matched exactly for this template to be processed.
     pub fields: Vec<ConfigField>,
@@ -560,7 +561,7 @@ impl TaskConfigTpl {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ConfigField {
     pub name: String,
     pub field_type: ConfigType,
@@ -598,7 +599,7 @@ impl ConfigField {
 }
 
 /// The expected type of a configuration field
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ConfigType {
     Str,
     Int,
@@ -629,7 +630,7 @@ impl ConfigType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ConfigValue {
     Str(String),
     Int(i64),

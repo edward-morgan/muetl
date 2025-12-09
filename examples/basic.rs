@@ -7,7 +7,7 @@ use kameo::{
 };
 use kameo_actors::pubsub::PubSub;
 use muetl::{
-    flow::{Edge, Flow, Node, NodeRef, RawFlow},
+    flow::{Flow, NodeRef, RawEdge, RawFlow, RawNode},
     impl_config_template, impl_sink_handler, impl_source_handler, logging,
     messages::event::Event,
     registry::Registry,
@@ -117,35 +117,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a RawFlow representing the processing graph we want
     let raw_flow = RawFlow {
         nodes: vec![
-            Node {
+            RawNode {
                 node_id: "node1".to_string(),
                 task_id: "ticker".to_string(),
                 configuration: cfg1,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "node2".to_string(),
                 task_id: "ticker".to_string(),
                 configuration: cfg2,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "node3".to_string(),
                 task_id: "log_sink".to_string(),
                 configuration: HashMap::new(),
-                info: None,
             },
         ],
         edges: vec![
-            Edge {
+            RawEdge {
                 from: NodeRef::new("node1".to_string(), "tick".to_string()),
                 to: NodeRef::new("node3".to_string(), "input".to_string()),
-                edge_type: None,
             },
-            Edge {
+            RawEdge {
                 from: NodeRef::new("node2".to_string(), "tick".to_string()),
                 to: NodeRef::new("node3".to_string(), "input".to_string()),
-                edge_type: None,
             },
         ],
     };

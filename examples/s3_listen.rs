@@ -14,7 +14,7 @@ use kameo::{
 };
 use kameo_actors::pubsub::PubSub;
 use muetl::{
-    flow::{Edge, Flow, Node, NodeRef, RawFlow},
+    flow::{Flow, NodeRef, RawEdge, RawFlow, RawNode},
     logging,
     registry::Registry,
     runtime::root::Root,
@@ -70,35 +70,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create the flow: S3ListSource -> Filter -> LogSink
     let raw_flow = RawFlow {
         nodes: vec![
-            Node {
+            RawNode {
                 node_id: "s3_source".to_string(),
                 task_id: "urn:rdp:transformer:muetl:s3_list_source".to_string(),
                 configuration: s3_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "size_filter".to_string(),
                 task_id: "urn:rdp:transformer:muetl:filter".to_string(),
                 configuration: filter_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "logger".to_string(),
                 task_id: "urn:rdp:transformer:muetl:log_sink".to_string(),
                 configuration: HashMap::new(),
-                info: None,
             },
         ],
         edges: vec![
-            Edge {
+            RawEdge {
                 from: NodeRef::new("s3_source".to_string(), "object".to_string()),
                 to: NodeRef::new("size_filter".to_string(), "input".to_string()),
-                edge_type: None,
             },
-            Edge {
+            RawEdge {
                 from: NodeRef::new("size_filter".to_string(), "output".to_string()),
                 to: NodeRef::new("logger".to_string(), "input".to_string()),
-                edge_type: None,
             },
         ],
     };

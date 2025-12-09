@@ -13,7 +13,7 @@ use kameo::{
 };
 use kameo_actors::pubsub::PubSub;
 use muetl::{
-    flow::{Edge, Flow, Node, NodeRef, RawFlow},
+    flow::{Flow, NodeRef, RawEdge, RawFlow, RawNode},
     registry::{Registry, TaskDefInfo, TaskInfo},
     runtime::root::Root,
     task_defs::ConfigValue,
@@ -105,35 +105,30 @@ async fn test_basic_node_passthrough() {
 
     let raw_flow = RawFlow {
         nodes: vec![
-            Node {
+            RawNode {
                 node_id: "source".to_string(),
                 task_id: "number_source".to_string(),
                 configuration: src_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "adder".to_string(),
                 task_id: "adder".to_string(),
                 configuration: adder_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "collector".to_string(),
                 task_id: "result_collector".to_string(),
                 configuration: collector_config,
-                info: None,
             },
         ],
         edges: vec![
-            Edge {
+            RawEdge {
                 from: NodeRef::new("source".to_string(), "output".to_string()),
                 to: NodeRef::new("adder".to_string(), "input".to_string()),
-                edge_type: None,
             },
-            Edge {
+            RawEdge {
                 from: NodeRef::new("adder".to_string(), "output".to_string()),
                 to: NodeRef::new("collector".to_string(), "input".to_string()),
-                edge_type: None,
             },
         ],
     };
@@ -182,35 +177,30 @@ async fn test_single_node_transformation() {
 
     let raw_flow = RawFlow {
         nodes: vec![
-            Node {
+            RawNode {
                 node_id: "source".to_string(),
                 task_id: "number_source".to_string(),
                 configuration: src_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "adder".to_string(),
                 task_id: "adder".to_string(),
                 configuration: adder_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "collector".to_string(),
                 task_id: "result_collector".to_string(),
                 configuration: collector_config,
-                info: None,
             },
         ],
         edges: vec![
-            Edge {
+            RawEdge {
                 from: NodeRef::new("source".to_string(), "output".to_string()),
                 to: NodeRef::new("adder".to_string(), "input".to_string()),
-                edge_type: None,
             },
-            Edge {
+            RawEdge {
                 from: NodeRef::new("adder".to_string(), "output".to_string()),
                 to: NodeRef::new("collector".to_string(), "input".to_string()),
-                edge_type: None,
             },
         ],
     };
@@ -263,46 +253,39 @@ async fn test_chained_nodes() {
 
     let raw_flow = RawFlow {
         nodes: vec![
-            Node {
+            RawNode {
                 node_id: "source".to_string(),
                 task_id: "number_source".to_string(),
                 configuration: src_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "adder".to_string(),
                 task_id: "adder".to_string(),
                 configuration: adder_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "multiplier".to_string(),
                 task_id: "multiplier".to_string(),
                 configuration: multiplier_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "collector".to_string(),
                 task_id: "result_collector".to_string(),
                 configuration: collector_config,
-                info: None,
             },
         ],
         edges: vec![
-            Edge {
+            RawEdge {
                 from: NodeRef::new("source".to_string(), "output".to_string()),
                 to: NodeRef::new("adder".to_string(), "input".to_string()),
-                edge_type: None,
             },
-            Edge {
+            RawEdge {
                 from: NodeRef::new("adder".to_string(), "output".to_string()),
                 to: NodeRef::new("multiplier".to_string(), "input".to_string()),
-                edge_type: None,
             },
-            Edge {
+            RawEdge {
                 from: NodeRef::new("multiplier".to_string(), "output".to_string()),
                 to: NodeRef::new("collector".to_string(), "input".to_string()),
-                edge_type: None,
             },
         ],
     };
@@ -361,46 +344,39 @@ async fn test_fan_out_from_node() {
 
     let raw_flow = RawFlow {
         nodes: vec![
-            Node {
+            RawNode {
                 node_id: "source".to_string(),
                 task_id: "number_source".to_string(),
                 configuration: src_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "adder".to_string(),
                 task_id: "adder".to_string(),
                 configuration: adder_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "collector_a".to_string(),
                 task_id: "result_collector".to_string(),
                 configuration: collector_a_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "collector_b".to_string(),
                 task_id: "result_collector".to_string(),
                 configuration: collector_b_config,
-                info: None,
             },
         ],
         edges: vec![
-            Edge {
+            RawEdge {
                 from: NodeRef::new("source".to_string(), "output".to_string()),
                 to: NodeRef::new("adder".to_string(), "input".to_string()),
-                edge_type: None,
             },
-            Edge {
+            RawEdge {
                 from: NodeRef::new("adder".to_string(), "output".to_string()),
                 to: NodeRef::new("collector_a".to_string(), "input".to_string()),
-                edge_type: None,
             },
-            Edge {
+            RawEdge {
                 from: NodeRef::new("adder".to_string(), "output".to_string()),
                 to: NodeRef::new("collector_b".to_string(), "input".to_string()),
-                edge_type: None,
             },
         ],
     };
@@ -470,46 +446,39 @@ async fn test_fan_in_to_node() {
 
     let raw_flow = RawFlow {
         nodes: vec![
-            Node {
+            RawNode {
                 node_id: "source1".to_string(),
                 task_id: "number_source".to_string(),
                 configuration: src1_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "source2".to_string(),
                 task_id: "number_source".to_string(),
                 configuration: src2_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "adder".to_string(),
                 task_id: "adder".to_string(),
                 configuration: adder_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "collector".to_string(),
                 task_id: "result_collector".to_string(),
                 configuration: collector_config,
-                info: None,
             },
         ],
         edges: vec![
-            Edge {
+            RawEdge {
                 from: NodeRef::new("source1".to_string(), "output".to_string()),
                 to: NodeRef::new("adder".to_string(), "input".to_string()),
-                edge_type: None,
             },
-            Edge {
+            RawEdge {
                 from: NodeRef::new("source2".to_string(), "output".to_string()),
                 to: NodeRef::new("adder".to_string(), "input".to_string()),
-                edge_type: None,
             },
-            Edge {
+            RawEdge {
                 from: NodeRef::new("adder".to_string(), "output".to_string()),
                 to: NodeRef::new("collector".to_string(), "input".to_string()),
-                edge_type: None,
             },
         ],
     };
@@ -570,59 +539,50 @@ async fn test_mixed_pipeline() {
 
     let raw_flow = RawFlow {
         nodes: vec![
-            Node {
+            RawNode {
                 node_id: "source".to_string(),
                 task_id: "number_source".to_string(),
                 configuration: src_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "adder".to_string(),
                 task_id: "adder".to_string(),
                 configuration: adder_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "multiplier".to_string(),
                 task_id: "multiplier".to_string(),
                 configuration: multiplier_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "transformed_collector".to_string(),
                 task_id: "result_collector".to_string(),
                 configuration: transformed_config,
-                info: None,
             },
-            Node {
+            RawNode {
                 node_id: "raw_collector".to_string(),
                 task_id: "result_collector".to_string(),
                 configuration: raw_config,
-                info: None,
             },
         ],
         edges: vec![
             // Source -> Adder -> Multiplier -> transformed_collector
-            Edge {
+            RawEdge {
                 from: NodeRef::new("source".to_string(), "output".to_string()),
                 to: NodeRef::new("adder".to_string(), "input".to_string()),
-                edge_type: None,
             },
-            Edge {
+            RawEdge {
                 from: NodeRef::new("adder".to_string(), "output".to_string()),
                 to: NodeRef::new("multiplier".to_string(), "input".to_string()),
-                edge_type: None,
             },
-            Edge {
+            RawEdge {
                 from: NodeRef::new("multiplier".to_string(), "output".to_string()),
                 to: NodeRef::new("transformed_collector".to_string(), "input".to_string()),
-                edge_type: None,
             },
             // Source -> raw_collector (direct)
-            Edge {
+            RawEdge {
                 from: NodeRef::new("source".to_string(), "output".to_string()),
                 to: NodeRef::new("raw_collector".to_string(), "input".to_string()),
-                edge_type: None,
             },
         ],
     };
