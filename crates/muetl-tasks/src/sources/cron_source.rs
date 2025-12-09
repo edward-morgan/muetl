@@ -20,8 +20,8 @@ use muetl::{
 /// Outputs unit `()` values on the "output" connection.
 pub struct CronSource {
     schedule: Schedule,
-    count: u64,
-    emitted: u64,
+    count: i64,
+    emitted: i64,
 }
 
 impl CronSource {
@@ -29,7 +29,7 @@ impl CronSource {
         let schedule_str = config.require_str("schedule");
         let schedule = Schedule::from_str(schedule_str)
             .map_err(|e| format!("invalid cron expression '{}': {}", schedule_str, e))?;
-        let count = config.get_u64("count").unwrap_or(0);
+        let count = config.get_i64("count").unwrap_or(0);
 
         Ok(Box::new(CronSource {
             schedule,
@@ -87,5 +87,5 @@ impl_source_handler!(CronSource, task_id = "urn:rdp:transformer:muetl:cron_sourc
 impl_config_template!(
     CronSource,
     schedule: Str!,
-    count: Uint = 0,
+    count: Num = 0,
 );

@@ -93,11 +93,11 @@ async fn test_basic_node_passthrough() {
 
     // NumberSource config: emit 5 numbers (0..5)
     let mut src_config = HashMap::new();
-    src_config.insert("count".to_string(), ConfigValue::Int(5));
+    src_config.insert("count".to_string(), ConfigValue::Num(5));
 
     // Adder config: add 0 (passthrough)
     let mut adder_config = HashMap::new();
-    adder_config.insert("addend".to_string(), ConfigValue::Int(0));
+    adder_config.insert("addend".to_string(), ConfigValue::Num(0));
 
     // ResultCollector config
     let mut collector_config = HashMap::new();
@@ -167,10 +167,10 @@ async fn test_single_node_transformation() {
     let registry = create_test_registry();
 
     let mut src_config = HashMap::new();
-    src_config.insert("count".to_string(), ConfigValue::Int(5));
+    src_config.insert("count".to_string(), ConfigValue::Num(5));
 
     let mut adder_config = HashMap::new();
-    adder_config.insert("addend".to_string(), ConfigValue::Int(10));
+    adder_config.insert("addend".to_string(), ConfigValue::Num(10));
 
     let mut collector_config = HashMap::new();
     collector_config.insert("name".to_string(), ConfigValue::Str("test2".to_string()));
@@ -240,13 +240,13 @@ async fn test_chained_nodes() {
     let registry = create_test_registry();
 
     let mut src_config = HashMap::new();
-    src_config.insert("count".to_string(), ConfigValue::Int(5));
+    src_config.insert("count".to_string(), ConfigValue::Num(5));
 
     let mut adder_config = HashMap::new();
-    adder_config.insert("addend".to_string(), ConfigValue::Int(5));
+    adder_config.insert("addend".to_string(), ConfigValue::Num(5));
 
     let mut multiplier_config = HashMap::new();
-    multiplier_config.insert("factor".to_string(), ConfigValue::Int(2));
+    multiplier_config.insert("factor".to_string(), ConfigValue::Num(2));
 
     let mut collector_config = HashMap::new();
     collector_config.insert("name".to_string(), ConfigValue::Str("test3".to_string()));
@@ -325,10 +325,10 @@ async fn test_fan_out_from_node() {
     let registry = create_test_registry();
 
     let mut src_config = HashMap::new();
-    src_config.insert("count".to_string(), ConfigValue::Int(5));
+    src_config.insert("count".to_string(), ConfigValue::Num(5));
 
     let mut adder_config = HashMap::new();
-    adder_config.insert("addend".to_string(), ConfigValue::Int(1));
+    adder_config.insert("addend".to_string(), ConfigValue::Num(1));
 
     let mut collector_a_config = HashMap::new();
     collector_a_config.insert(
@@ -433,13 +433,13 @@ async fn test_fan_in_to_node() {
     let registry = create_test_registry();
 
     let mut src1_config = HashMap::new();
-    src1_config.insert("count".to_string(), ConfigValue::Int(3));
+    src1_config.insert("count".to_string(), ConfigValue::Num(3));
 
     let mut src2_config = HashMap::new();
-    src2_config.insert("count".to_string(), ConfigValue::Int(3));
+    src2_config.insert("count".to_string(), ConfigValue::Num(3));
 
     let mut adder_config = HashMap::new();
-    adder_config.insert("addend".to_string(), ConfigValue::Int(100));
+    adder_config.insert("addend".to_string(), ConfigValue::Num(100));
 
     let mut collector_config = HashMap::new();
     collector_config.insert("name".to_string(), ConfigValue::Str("fan_in".to_string()));
@@ -520,13 +520,13 @@ async fn test_mixed_pipeline() {
     let registry = create_test_registry();
 
     let mut src_config = HashMap::new();
-    src_config.insert("count".to_string(), ConfigValue::Int(5));
+    src_config.insert("count".to_string(), ConfigValue::Num(5));
 
     let mut adder_config = HashMap::new();
-    adder_config.insert("addend".to_string(), ConfigValue::Int(10));
+    adder_config.insert("addend".to_string(), ConfigValue::Num(10));
 
     let mut multiplier_config = HashMap::new();
-    multiplier_config.insert("factor".to_string(), ConfigValue::Int(3));
+    multiplier_config.insert("factor".to_string(), ConfigValue::Num(3));
 
     let mut transformed_config = HashMap::new();
     transformed_config.insert(

@@ -30,14 +30,14 @@ pub struct Batch {
     buffer: Vec<Arc<dyn Any + Send + Sync>>,
     first_headers: Option<HashMap<String, String>>,
     batch_start: Option<Instant>,
-    batch_count: u64,
+    batch_count: i64,
 }
 
 impl Batch {
     pub fn new(config: &TaskConfig) -> Result<Box<dyn Operator>, String> {
         Ok(Box::new(Batch {
-            max_size: config.get_u64("max_size").unwrap_or(10) as usize,
-            max_wait: Duration::from_millis(config.get_u64("max_wait_ms").unwrap_or(1000)),
+            max_size: config.get_i64("max_size").unwrap_or(10) as usize,
+            max_wait: Duration::from_millis(config.get_i64("max_wait_ms").unwrap_or(1000) as u64),
             buffer: Vec::new(),
             first_headers: None,
             batch_start: None,
@@ -135,6 +135,6 @@ impl Operator for Batch {
 
 impl_config_template!(
     Batch,
-    max_size: Uint = 10,
-    max_wait_ms: Uint = 1000,
+    max_size: Num = 10,
+    max_wait_ms: Num = 1000,
 );

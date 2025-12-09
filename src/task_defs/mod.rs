@@ -290,17 +290,12 @@ macro_rules! impl_config_template {
     (@parse_fields $vec:ident;) => {};
 
     // Helper rules to convert field types to ConfigType
-    (@type Uint) => { $crate::task_defs::ConfigType::Uint };
-    (@type Int) => { $crate::task_defs::ConfigType::Int };
+    (@type Num) => { $crate::task_defs::ConfigType::Num };
     (@type Str) => { $crate::task_defs::ConfigType::Str };
     (@type Bool) => { $crate::task_defs::ConfigType::Bool };
 
-    // Helper rules to convert field types to ConfigValue
-    (@value Uint, $val:expr) => {
-        $crate::task_defs::ConfigValue::Uint($val)
-    };
-    (@value Int, $val:expr) => {
-        $crate::task_defs::ConfigValue::Int($val)
+    (@value Num, $val:expr) => {
+        $crate::task_defs::ConfigValue::Num($val)
     };
     (@value Str, $val:expr) => {
         $crate::task_defs::ConfigValue::Str($val.to_string())
@@ -602,8 +597,7 @@ impl ConfigField {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ConfigType {
     Str,
-    Int,
-    Uint,
+    Num,
     Bool,
     Arr(Box<ConfigType>),
     Map(Box<ConfigType>),
@@ -616,8 +610,7 @@ impl ConfigType {
         match (self, value) {
             (ConfigType::Any, _) => true,
             (ConfigType::Str, ConfigValue::Str(_)) => true,
-            (ConfigType::Int, ConfigValue::Int(_)) => true,
-            (ConfigType::Uint, ConfigValue::Uint(_)) => true,
+            (ConfigType::Num, ConfigValue::Num(_)) => true,
             (ConfigType::Bool, ConfigValue::Bool(_)) => true,
             (ConfigType::Arr(inner), ConfigValue::Arr(items)) => {
                 items.iter().all(|item| inner.matches(item))
@@ -631,10 +624,10 @@ impl ConfigType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum ConfigValue {
     Str(String),
-    Int(i64),
-    Uint(u64),
+    Num(i64),
     Bool(bool),
     Arr(Vec<ConfigValue>),
     Map(HashMap<String, ConfigValue>),
@@ -645,8 +638,7 @@ impl ConfigValue {
     pub fn config_type(&self) -> ConfigType {
         match self {
             Self::Str(_) => ConfigType::Str,
-            Self::Int(_) => ConfigType::Int,
-            Self::Uint(_) => ConfigType::Uint,
+            Self::Num(_) => ConfigType::Num,
             Self::Bool(_) => ConfigType::Bool,
             Self::Arr(v) => {
                 let inner = v
@@ -703,16 +695,9 @@ impl TaskConfig {
         }
     }
 
-    pub fn get_u64(&self, key: &str) -> Option<u64> {
-        match self.values.get(key)? {
-            ConfigValue::Uint(n) => Some(*n),
-            _ => None,
-        }
-    }
-
     pub fn get_i64(&self, key: &str) -> Option<i64> {
         match self.values.get(key)? {
-            ConfigValue::Int(n) => Some(*n),
+            ConfigValue::Num(n) => Some(*n),
             _ => None,
         }
     }
@@ -733,11 +718,6 @@ impl TaskConfig {
 
     pub fn require_str(&self, key: &str) -> &str {
         self.get_str(key)
-            .unwrap_or_else(|| panic!("missing or invalid config key: {}", key))
-    }
-
-    pub fn require_u64(&self, key: &str) -> u64 {
-        self.get_u64(key)
             .unwrap_or_else(|| panic!("missing or invalid config key: {}", key))
     }
 

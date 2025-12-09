@@ -23,15 +23,15 @@ pub struct FileSink {
     #[allow(dead_code)]
     path: PathBuf,
     writer: Option<BufWriter<File>>,
-    flush_every: u64,
-    event_count: u64,
+    flush_every: i64,
+    event_count: i64,
 }
 
 impl FileSink {
     pub fn new(config: &TaskConfig) -> Result<Box<dyn muetl::task_defs::sink::Sink>, String> {
         let path = PathBuf::from(config.require_str("path"));
         let append = config.get_bool("append").unwrap_or(true);
-        let flush_every = config.get_u64("flush_every").unwrap_or(1);
+        let flush_every = config.get_i64("flush_every").unwrap_or(1);
 
         let file = OpenOptions::new()
             .create(true)
@@ -82,5 +82,5 @@ impl_config_template!(
     FileSink,
     path: Str!,
     append: Bool = true,
-    flush_every: Uint = 1,
+    flush_every: Num = 1,
 );

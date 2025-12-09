@@ -30,7 +30,7 @@ pub struct RateLimit {
 
 impl RateLimit {
     pub fn new(config: &TaskConfig) -> Result<Box<dyn Operator>, String> {
-        let max_per_second = config.get_u64("max_per_second").unwrap_or(10);
+        let max_per_second = config.get_i64("max_per_second").unwrap_or(10);
         let min_interval = if max_per_second > 0 {
             Duration::from_secs_f64(1.0 / max_per_second as f64)
         } else {
@@ -103,5 +103,5 @@ impl Operator for RateLimit {
 
 impl_config_template!(
     RateLimit,
-    max_per_second: Uint = 10,
+    max_per_second: Num = 10,
 );

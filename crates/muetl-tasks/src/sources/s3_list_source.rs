@@ -263,6 +263,6 @@ impl_config_template!(
     secret_access_key: Str,
     key_pattern: Str,
     exclude_pattern: Str,
-    min_size: Int,
-    max_size: Int,
+    min_size: Num,
+    max_size: Num,
 );

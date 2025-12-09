@@ -12,7 +12,9 @@ use async_trait::async_trait;
 use muetl::{
     impl_operator_handler, impl_sink_handler,
     messages::event::Event,
-    task_defs::{source::Source, Input, MuetlContext, MuetlSinkContext, SinkInput, TaskConfig, TaskDef},
+    task_defs::{
+        source::Source, Input, MuetlContext, MuetlSinkContext, SinkInput, TaskConfig, TaskDef,
+    },
 };
 
 // ----------------------------------------------------------------------------
@@ -68,7 +70,9 @@ pub struct Adder {
 }
 
 impl Adder {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn muetl::task_defs::operator::Operator>, String> {
+    pub fn new(
+        config: &TaskConfig,
+    ) -> Result<Box<dyn muetl::task_defs::operator::Operator>, String> {
         let addend = config
             .get("addend")
             .and_then(config_value_to_i64)
@@ -106,7 +110,9 @@ pub struct Multiplier {
 }
 
 impl Multiplier {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn muetl::task_defs::operator::Operator>, String> {
+    pub fn new(
+        config: &TaskConfig,
+    ) -> Result<Box<dyn muetl::task_defs::operator::Operator>, String> {
         let factor = config
             .get("factor")
             .and_then(config_value_to_i64)
@@ -205,8 +211,7 @@ impl_sink_handler!(ResultCollector, "input" => i64);
 
 fn config_value_to_i64(value: &muetl::task_defs::ConfigValue) -> Option<i64> {
     match value {
-        muetl::task_defs::ConfigValue::Int(i) => Some(*i),
-        muetl::task_defs::ConfigValue::Uint(u) => Some(*u as i64),
+        muetl::task_defs::ConfigValue::Num(i) => Some(*i),
         _ => None,
     }
 }

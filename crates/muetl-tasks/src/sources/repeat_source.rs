@@ -18,15 +18,15 @@ use muetl::{
 /// Outputs String values on the "output" connection.
 pub struct RepeatSource {
     value: String,
-    remaining: u64,
-    emitted: u64,
+    remaining: i64,
+    emitted: i64,
 }
 
 impl RepeatSource {
     pub fn new(config: &TaskConfig) -> Result<Box<dyn Source>, String> {
         Ok(Box::new(RepeatSource {
             value: config.require_str("value").to_string(),
-            remaining: config.get_u64("count").unwrap_or(10),
+            remaining: config.get_i64("count").unwrap_or(10),
             emitted: 0,
         }))
     }
@@ -63,5 +63,5 @@ impl_source_handler!(RepeatSource, task_id = "urn:rdp:transformer:muetl:repeat_s
 impl_config_template!(
     RepeatSource,
     value: Str!,
-    count: Uint = 10,
+    count: Num = 10,
 );
