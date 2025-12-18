@@ -59,7 +59,7 @@ impl Source for RepeatSource {
     }
 }
 
-impl_source_handler!(RepeatSource, task_id = "urn:rdp:transformer:muetl:repeat_source", "output" => String);
+impl_source_handler!(RepeatSource, task_id = "urn:muetl:source:repeat_source", "output" => String);
 impl_config_template!(
     RepeatSource,
     value: Str!,

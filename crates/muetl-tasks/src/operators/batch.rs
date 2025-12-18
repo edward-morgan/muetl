@@ -96,7 +96,7 @@ impl SelfDescribing for Batch {
         );
 
         TaskInfo {
-            task_id: "urn:rdp:transformer:muetl:batch".to_string(),
+            task_id: "urn:muetl:batch".to_string(),
             config_tpl: <Self as ConfigTemplate>::config_template(),
             info: TaskDefInfo::OperatorDef {
                 inputs,

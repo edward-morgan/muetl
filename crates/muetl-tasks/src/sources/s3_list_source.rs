@@ -252,7 +252,7 @@ impl Source for S3ListSource {
     }
 }
 
-impl_source_handler!(S3ListSource, task_id = "urn:rdp:transformer:muetl:s3_list_source", "object" => ());
+impl_source_handler!(S3ListSource, task_id = "urn:muetl:source:s3_list_source", "object" => ());
 impl_config_template!(
     S3ListSource,
     bucket: Str!,

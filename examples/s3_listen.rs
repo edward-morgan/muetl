@@ -72,17 +72,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         nodes: vec![
             RawNode {
                 node_id: "s3_source".to_string(),
-                task_id: "urn:rdp:transformer:muetl:s3_list_source".to_string(),
+                task_id: "urn:muetl:s3_list_source".to_string(),
                 configuration: s3_config,
             },
             RawNode {
                 node_id: "size_filter".to_string(),
-                task_id: "urn:rdp:transformer:muetl:filter".to_string(),
+                task_id: "urn:muetl:filter".to_string(),
                 configuration: filter_config,
             },
             RawNode {
                 node_id: "logger".to_string(),
-                task_id: "urn:rdp:transformer:muetl:log_sink".to_string(),
+                task_id: "urn:muetl:log_sink".to_string(),
                 configuration: HashMap::new(),
             },
         ],

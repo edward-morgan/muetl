@@ -55,7 +55,7 @@ impl SelfDescribing for RateLimit {
         outputs.insert("output".to_string(), vec![]);
 
         TaskInfo {
-            task_id: "urn:rdp:transformer:muetl:rate_limit".to_string(),
+            task_id: "urn:muetl:rate_limit".to_string(),
             config_tpl: <Self as ConfigTemplate>::config_template(),
             info: TaskDefInfo::OperatorDef {
                 inputs,

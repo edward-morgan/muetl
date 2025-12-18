@@ -44,7 +44,7 @@ impl SelfDescribing for Dedup {
         outputs.insert("output".to_string(), vec![]);
 
         TaskInfo {
-            task_id: "urn:rdp:transformer:muetl:dedup".to_string(),
+            task_id: "urn:muetl:dedup".to_string(),
             config_tpl: <Self as ConfigTemplate>::config_template(),
             info: TaskDefInfo::OperatorDef {
                 inputs,

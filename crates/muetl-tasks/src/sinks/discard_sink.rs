@@ -45,7 +45,7 @@ impl SelfDescribing for DiscardSink {
         inputs.insert("input".to_string(), vec![]);
 
         TaskInfo {
-            task_id: "urn:rdp:transformer:muetl:discard_sink".to_string(),
+            task_id: "urn:muetl:sink:discard_sink".to_string(),
             config_tpl: <Self as ConfigTemplate>::config_template(),
             info: TaskDefInfo::SinkDef {
                 inputs,
