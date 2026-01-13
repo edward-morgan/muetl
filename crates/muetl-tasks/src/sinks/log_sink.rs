@@ -17,6 +17,7 @@ pub struct LogSink {}
 
 impl LogSink {
     pub fn new(_config: &TaskConfig) -> Result<Box<dyn Sink>, String> {
+        tracing::info!("Starting log sink");
         Ok(Box::new(LogSink {}))
     }
 }

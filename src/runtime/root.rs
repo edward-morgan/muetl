@@ -219,6 +219,7 @@ impl Actor for Root {
         // Collect layers into owned data to avoid borrow conflicts
         let layers = args.partition_nodes_by_layer();
 
+        tracing::info!(layers = ?layers, "Starting nodes by layer.");
         // Spawn in order: sinks, then nodes, then sources
         for layer in layers {
             for node_id in layer {
@@ -226,6 +227,8 @@ impl Actor for Root {
                 // Generate a task ID for this node
                 let task_id = new_id();
                 args.node_task_mapping.insert(node_id.clone(), task_id);
+
+                tracing::info!(node_id = node_id, task_id = task_id, "Starting node.");
 
                 match args
                     .spawn_actor_for_node(&actor_ref, &node_id, node, task_id)
@@ -241,6 +244,7 @@ impl Actor for Root {
             // Yield to allow subscriptions to complete before spawning the next layer
             tokio::task::yield_now().await;
         }
+        tracing::info!(actor_node_mapping = ?args.actor_node_mapping, "Startup complete.");
         Ok(args)
     }
     async fn on_stop(
