@@ -238,14 +238,22 @@ macro_rules! impl_sink_handler {
 /// - `field: Type!` - Required field (must be provided)
 /// - `field: Type` - Optional field without default
 ///
+/// Types can be:
+/// - `Num` - Number (i64)
+/// - `Str` - String
+/// - `Bool` - Boolean
+/// - `Arr[Type]` - Array of Type (e.g., `Arr[Str]` for array of strings)
+///
 /// # Example
 ///
 /// ```ignore
 /// impl_config_template!(
 ///     MyTask,
 ///     schedule: Str!,           // Required string field
-///     count: Uint = 10,         // Optional uint with default
+///     count: Num = 10,          // Optional num with default
 ///     enabled: Bool,            // Optional bool without default
+///     tags: Arr[Str] = vec!["default"], // Array of strings with default
+///     ports: Arr[Num]!,         // Required array of numbers
 /// );
 /// ```
 #[macro_export]
@@ -263,6 +271,33 @@ macro_rules! impl_config_template {
                 })
             }
         }
+    };
+
+    // Parse array field with default value
+    (@parse_fields $vec:ident; $field:ident: Arr[$ftype:ident] = $default:expr, $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::with_default(
+            stringify!($field),
+            impl_config_template!(@array_value $ftype, $default)
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
+    // Parse required array field
+    (@parse_fields $vec:ident; $field:ident: Arr[$ftype:ident]!, $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::required(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Arr(Box::new(impl_config_template!(@type $ftype)))
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
+    // Parse optional array field without default
+    (@parse_fields $vec:ident; $field:ident: Arr[$ftype:ident], $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::optional(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Arr(Box::new(impl_config_template!(@type $ftype)))
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
     };
 
     // Parse field with default value
@@ -316,6 +351,30 @@ macro_rules! impl_config_template {
         ));
     };
 
+    // Parse array field with default value (last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: Arr[$ftype:ident] = $default:expr) => {
+        $vec.push($crate::task_defs::ConfigField::with_default(
+            stringify!($field),
+            impl_config_template!(@array_value $ftype, $default)
+        ));
+    };
+
+    // Parse required array field (last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: Arr[$ftype:ident]!) => {
+        $vec.push($crate::task_defs::ConfigField::required(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Arr(Box::new(impl_config_template!(@type $ftype)))
+        ));
+    };
+
+    // Parse optional array field without default (last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: Arr[$ftype:ident]) => {
+        $vec.push($crate::task_defs::ConfigField::optional(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Arr(Box::new(impl_config_template!(@type $ftype)))
+        ));
+    };
+
     // Base case - no more fields
     (@parse_fields $vec:ident;) => {};
 
@@ -332,6 +391,23 @@ macro_rules! impl_config_template {
     };
     (@value Bool, $val:expr) => {
         $crate::task_defs::ConfigValue::Bool($val)
+    };
+
+    // Helper rules to convert array values
+    (@array_value Num, $val:expr) => {
+        $crate::task_defs::ConfigValue::Arr(
+            $val.into_iter().map(|v| $crate::task_defs::ConfigValue::Num(v)).collect()
+        )
+    };
+    (@array_value Str, $val:expr) => {
+        $crate::task_defs::ConfigValue::Arr(
+            $val.into_iter().map(|v| $crate::task_defs::ConfigValue::Str(v.to_string())).collect()
+        )
+    };
+    (@array_value Bool, $val:expr) => {
+        $crate::task_defs::ConfigValue::Arr(
+            $val.into_iter().map(|v| $crate::task_defs::ConfigValue::Bool(v)).collect()
+        )
     };
 }
 
