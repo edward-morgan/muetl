@@ -1,13 +1,13 @@
 //! RateLimit operator - throttles event throughput.
 
 use std::{
-    any::TypeId,
     collections::HashMap,
+    future::Future,
+    pin::Pin,
     sync::Arc,
     time::{Duration, Instant},
 };
 
-use async_trait::async_trait;
 use muetl::{
     impl_config_template,
     messages::event::Event,
@@ -66,38 +66,39 @@ impl SelfDescribing for RateLimit {
     }
 }
 
-#[async_trait]
 impl Operator for RateLimit {
-    async fn handle_event_for_conn(
-        &mut self,
-        ctx: &MuetlContext,
-        conn_name: &String,
+    fn handle_event_for_conn<'a>(
+        &'a mut self,
+        ctx: &'a MuetlContext,
+        conn_name: &'a String,
         ev: Arc<Event>,
-    ) {
-        if conn_name != "input" {
-            return;
-        }
-
-        // Calculate required delay
-        if let Some(last) = self.last_emit {
-            let elapsed = last.elapsed();
-            if elapsed < self.min_interval {
-                sleep(self.min_interval - elapsed).await;
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            if conn_name != "input" {
+                return;
             }
-        }
 
-        self.last_emit = Some(Instant::now());
+            // Calculate required delay
+            if let Some(last) = self.last_emit {
+                let elapsed = last.elapsed();
+                if elapsed < self.min_interval {
+                    sleep(self.min_interval - elapsed).await;
+                }
+            }
 
-        let headers = ctx.event_headers.clone().unwrap_or_default();
-        ctx.results
-            .send(Event::new(
-                ctx.event_name.clone().unwrap_or_default(),
-                "output".to_string(),
-                headers,
-                ev.get_data(),
-            ))
-            .await
-            .unwrap();
+            self.last_emit = Some(Instant::now());
+
+            let headers = ctx.event_headers.clone().unwrap_or_default();
+            ctx.results
+                .send(Event::new(
+                    ctx.event_name.clone().unwrap_or_default(),
+                    "output".to_string(),
+                    headers,
+                    ev.get_data(),
+                ))
+                .await
+                .unwrap();
+        })
     }
 }
 

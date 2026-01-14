@@ -156,6 +156,46 @@ impl Message<()> for SourceActor {
         }
         if should_stop {
             tracing::info!(task_id = self.id, task_name = %self.task_name, "Source is finished; exiting...");
+
+            // Allow the source to flush any buffered data before shutdown
+            if let Some(mut source) = self.source.take() {
+                let (result_tx, mut result_rx) = mpsc::channel(100);
+                let (status_tx, _status_rx) = mpsc::channel(100);
+
+                let shutdown_ctx = MuetlContext {
+                    current_subscribers: HashMap::new(),
+                    results: result_tx,
+                    status: status_tx,
+                    event_name: None,
+                    event_headers: None,
+                };
+
+                let span = tracing::info_span!(
+                    "task_shutdown",
+                    trace_id = self.trace_id,
+                    task_id = self.id,
+                    task_name = %self.task_name,
+                );
+
+                async {
+                    source.prepare_shutdown(&shutdown_ctx).await;
+
+                    // Process any final results produced during shutdown
+                    drop(shutdown_ctx);
+                    while let Some(result) = result_rx.recv().await {
+                        tracing::debug!(task_id = self.id, "Source produced final result during shutdown");
+                        match self.outgoing_connections.publish_to(Arc::new(result)).await {
+                            Ok(()) => {},
+                            Err(reason) => tracing::error!(task_id = self.id, error = %reason, "Source failed to produce final events during shutdown"),
+                        }
+                    }
+                }
+                .instrument(span)
+                .await;
+
+                self.source = Some(source);
+            }
+
             self.outgoing_connections.broadcast_shutdown().await;
             ctx.stop();
         }

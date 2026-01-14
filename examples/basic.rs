@@ -1,6 +1,5 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration, future::Future, pin::Pin};
 
-use async_trait::async_trait;
 use kameo::actor::{ActorRef, Spawn};
 use kameo_actors::pubsub::PubSub;
 use muetl::{
@@ -24,8 +23,10 @@ impl LogSink {
 
 impl SinkInput<i64> for LogSink {
     const conn_name: &'static str = "input";
-    async fn handle(&mut self, _ctx: &MuetlSinkContext, input: &i64) {
-        tracing::info!(value = %input, "LogSink received");
+    fn handle<'a>(&'a mut self, _ctx: &'a MuetlSinkContext, input: &'a i64) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            tracing::info!(value = %input, "LogSink received");
+        })
     }
 }
 
@@ -59,28 +60,29 @@ impl Output<i64> for Ticker {
     const conn_name: &'static str = "tick";
 }
 
-#[async_trait]
 impl Source for Ticker {
-    async fn run(&mut self, ctx: &crate::task_defs::MuetlContext) -> () {
-        if self.t == self.iterations {
-            tracing::debug!(iterations = self.t, "Ticker reached max iterations");
-            ctx.status
-                .send(crate::messages::Status::Finished)
-                .await
-                .unwrap();
-        } else {
-            ctx.results
-                .send(Event::new(
-                    format!("tick-{}", self.t),
-                    "tick".to_string(),
-                    HashMap::new(),
-                    Arc::new(self.t),
-                ))
-                .await
-                .unwrap();
-            self.t += 1;
-            sleep(self.period).await;
-        }
+    fn run<'a>(&'a mut self, ctx: &'a crate::task_defs::MuetlContext) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            if self.t == self.iterations {
+                tracing::debug!(iterations = self.t, "Ticker reached max iterations");
+                ctx.status
+                    .send(crate::messages::Status::Finished)
+                    .await
+                    .unwrap();
+            } else {
+                ctx.results
+                    .send(Event::new(
+                        format!("tick-{}", self.t),
+                        "tick".to_string(),
+                        HashMap::new(),
+                        Arc::new(self.t),
+                    ))
+                    .await
+                    .unwrap();
+                self.t += 1;
+                sleep(self.period).await;
+            }
+        })
     }
 }
 

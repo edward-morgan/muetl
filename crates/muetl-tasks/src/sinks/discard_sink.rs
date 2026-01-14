@@ -1,8 +1,7 @@
 //! DiscardSink - consumes and discards all events.
 
-use std::{any::TypeId, collections::HashMap, sync::Arc};
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
-use async_trait::async_trait;
 use muetl::{
     messages::event::Event,
     registry::{SelfDescribing, TaskDefInfo, TaskInfo},
@@ -55,16 +54,17 @@ impl SelfDescribing for DiscardSink {
     }
 }
 
-#[async_trait]
 impl Sink for DiscardSink {
-    async fn handle_event_for_conn(
-        &mut self,
-        _ctx: &MuetlSinkContext,
-        conn_name: &String,
+    fn handle_event_for_conn<'a>(
+        &'a mut self,
+        _ctx: &'a MuetlSinkContext,
+        conn_name: &'a String,
         _ev: Arc<Event>,
-    ) {
-        if conn_name == "input" {
-            self.count += 1;
-        }
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            if conn_name == "input" {
+                self.count += 1;
+            }
+        })
     }
 }

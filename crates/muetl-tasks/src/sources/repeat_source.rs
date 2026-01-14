@@ -1,8 +1,7 @@
 //! RepeatSource - emits a fixed value repeatedly.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
-use async_trait::async_trait;
 use muetl::{
     impl_config_template, impl_source_handler,
     messages::{event::Event, Status},
@@ -38,24 +37,25 @@ impl Output<String> for RepeatSource {
     const conn_name: &'static str = "output";
 }
 
-#[async_trait]
 impl Source for RepeatSource {
-    async fn run(&mut self, ctx: &MuetlContext) {
-        if self.remaining == 0 {
-            ctx.status.send(Status::Finished).await.unwrap();
-        } else {
-            ctx.results
-                .send(Event::new(
-                    format!("repeat-{}", self.emitted),
-                    "output".to_string(),
-                    HashMap::new(),
-                    Arc::new(self.value.clone()),
-                ))
-                .await
-                .unwrap();
-            self.remaining -= 1;
-            self.emitted += 1;
-        }
+    fn run<'a>(&'a mut self, ctx: &'a MuetlContext) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            if self.remaining == 0 {
+                ctx.status.send(Status::Finished).await.unwrap();
+            } else {
+                ctx.results
+                    .send(Event::new(
+                        format!("repeat-{}", self.emitted),
+                        "output".to_string(),
+                        HashMap::new(),
+                        Arc::new(self.value.clone()),
+                    ))
+                    .await
+                    .unwrap();
+                self.remaining -= 1;
+                self.emitted += 1;
+            }
+        })
     }
 }
 

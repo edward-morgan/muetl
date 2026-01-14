@@ -105,6 +105,31 @@ impl Message<Arc<InternalEvent>> for SinkActor {
                 // If no incoming connections are active, then stop the Actor.
                 if self.should_shut_down() {
                     tracing::info!(task_id = self.id, task_name = %self.task_name, "No incoming connections are still active; Sink will shut down.");
+
+                    // Allow the sink to flush any buffered data before shutdown
+                    if let Some(mut sink) = self.sink.take() {
+                        let (status_tx, _status_rx) = mpsc::channel(100);
+
+                        let shutdown_ctx = MuetlSinkContext {
+                            status: status_tx,
+                            event_name: "shutdown".to_string(),
+                            event_headers: Default::default(),
+                        };
+
+                        let span = tracing::info_span!(
+                            "task_shutdown",
+                            trace_id = self.trace_id,
+                            task_id = self.id,
+                            task_name = %self.task_name,
+                        );
+
+                        sink.prepare_shutdown(&shutdown_ctx)
+                            .instrument(span)
+                            .await;
+
+                        self.sink = Some(sink);
+                    }
+
                     ctx.stop();
                 }
             }

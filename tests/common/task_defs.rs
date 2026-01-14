@@ -6,9 +6,8 @@
 //! - `Multiplier`: An Operator that multiplies each input number by a constant
 //! - `ResultCollector`: A Sink that collects results for assertion
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, future::Future, pin::Pin};
 
-use async_trait::async_trait;
 use muetl::{
     impl_operator_handler, impl_sink_handler,
     messages::event::Event,
@@ -38,26 +37,27 @@ impl NumberSource {
 
 impl TaskDef for NumberSource {}
 
-#[async_trait]
 impl Source for NumberSource {
-    async fn run(&mut self, ctx: &MuetlContext) {
-        if self.current >= self.max {
-            ctx.status
-                .send(muetl::messages::Status::Finished)
-                .await
-                .unwrap();
-        } else {
-            ctx.results
-                .send(Event::new(
-                    format!("number-{}", self.current),
-                    "output".to_string(),
-                    HashMap::new(),
-                    Arc::new(self.current),
-                ))
-                .await
-                .unwrap();
-            self.current += 1;
-        }
+    fn run<'a>(&'a mut self, ctx: &'a MuetlContext) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            if self.current >= self.max {
+                ctx.status
+                    .send(muetl::messages::Status::Finished)
+                    .await
+                    .unwrap();
+            } else {
+                ctx.results
+                    .send(Event::new(
+                        format!("number-{}", self.current),
+                        "output".to_string(),
+                        HashMap::new(),
+                        Arc::new(self.current),
+                    ))
+                    .await
+                    .unwrap();
+                self.current += 1;
+            }
+        })
     }
 }
 
@@ -85,17 +85,19 @@ impl TaskDef for Adder {}
 
 impl Input<i64> for Adder {
     const conn_name: &'static str = "input";
-    async fn handle(&mut self, ctx: &MuetlContext, value: &i64) {
-        let result = value + self.addend;
-        ctx.results
-            .send(Event::new(
-                format!("{}-plus-{}", ctx.event_name.as_ref().unwrap(), self.addend),
-                "output".to_string(),
-                HashMap::new(),
-                Arc::new(result),
-            ))
-            .await
-            .unwrap();
+    fn handle<'a>(&'a mut self, ctx: &'a MuetlContext, value: &'a i64) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            let result = value + self.addend;
+            ctx.results
+                .send(Event::new(
+                    format!("{}-plus-{}", ctx.event_name.as_ref().unwrap(), self.addend),
+                    "output".to_string(),
+                    HashMap::new(),
+                    Arc::new(result),
+                ))
+                .await
+                .unwrap();
+        })
     }
 }
 
@@ -125,17 +127,19 @@ impl TaskDef for Multiplier {}
 
 impl Input<i64> for Multiplier {
     const conn_name: &'static str = "input";
-    async fn handle(&mut self, ctx: &MuetlContext, value: &i64) {
-        let result = value * self.factor;
-        ctx.results
-            .send(Event::new(
-                format!("{}-times-{}", ctx.event_name.as_ref().unwrap(), self.factor),
-                "output".to_string(),
-                HashMap::new(),
-                Arc::new(result),
-            ))
-            .await
-            .unwrap();
+    fn handle<'a>(&'a mut self, ctx: &'a MuetlContext, value: &'a i64) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            let result = value * self.factor;
+            ctx.results
+                .send(Event::new(
+                    format!("{}-times-{}", ctx.event_name.as_ref().unwrap(), self.factor),
+                    "output".to_string(),
+                    HashMap::new(),
+                    Arc::new(result),
+                ))
+                .await
+                .unwrap();
+        })
     }
 }
 
@@ -193,13 +197,15 @@ impl TaskDef for ResultCollector {}
 
 impl SinkInput<i64> for ResultCollector {
     const conn_name: &'static str = "input";
-    async fn handle(&mut self, _ctx: &MuetlSinkContext, value: &i64) {
-        COLLECTED_RESULTS
-            .lock()
-            .unwrap()
-            .entry(self.name.clone())
-            .or_default()
-            .push(*value);
+    fn handle<'a>(&'a mut self, _ctx: &'a MuetlSinkContext, value: &'a i64) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            COLLECTED_RESULTS
+                .lock()
+                .unwrap()
+                .entry(self.name.clone())
+                .or_default()
+                .push(*value);
+        })
     }
 }
 

@@ -3,9 +3,8 @@
 //! Accepts any primitive type, Vec, HashMap, or unit `()` on the "input" connection.
 //! Event headers are included in the log output.
 
-use std::{any::TypeId, collections::HashMap, sync::Arc};
+use std::{any::TypeId, collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
-use async_trait::async_trait;
 use muetl::{
     messages::event::Event,
     registry::{SelfDescribing, TaskDefInfo, TaskInfo},
@@ -62,34 +61,35 @@ impl SelfDescribing for LogSink {
     }
 }
 
-#[async_trait]
 impl Sink for LogSink {
-    async fn handle_event_for_conn(
-        &mut self,
-        ctx: &MuetlSinkContext,
-        conn_name: &String,
+    fn handle_event_for_conn<'a>(
+        &'a mut self,
+        ctx: &'a MuetlSinkContext,
+        conn_name: &'a String,
         ev: Arc<Event>,
-    ) {
-        if conn_name != "input" {
-            return;
-        }
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            if conn_name != "input" {
+                return;
+            }
 
-        let data = ev.get_data();
-        let value_str = format_value(&data);
+            let data = ev.get_data();
+            let value_str = format_value(&data);
 
-        // Format headers for logging
-        let headers_str = if ctx.event_headers.is_empty() {
-            String::from("{}")
-        } else {
-            format!("{:?}", ctx.event_headers)
-        };
+            // Format headers for logging
+            let headers_str = if ctx.event_headers.is_empty() {
+                String::from("{}")
+            } else {
+                format!("{:?}", ctx.event_headers)
+            };
 
-        tracing::info!(
-            event_name = %ctx.event_name,
-            headers = %headers_str,
-            value = %value_str,
-            "LogSink received"
-        );
+            tracing::info!(
+                event_name = %ctx.event_name,
+                headers = %headers_str,
+                value = %value_str,
+                "LogSink received"
+            );
+        })
     }
 }
 

@@ -1,8 +1,7 @@
 //! Filter operator - passes through events that match header conditions.
 
-use std::{any::TypeId, collections::HashMap, sync::Arc};
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
-use async_trait::async_trait;
 use muetl::{
     impl_config_template,
     messages::event::Event,
@@ -145,30 +144,31 @@ impl SelfDescribing for Filter {
     }
 }
 
-#[async_trait]
 impl Operator for Filter {
-    async fn handle_event_for_conn(
-        &mut self,
-        ctx: &MuetlContext,
-        conn_name: &String,
+    fn handle_event_for_conn<'a>(
+        &'a mut self,
+        ctx: &'a MuetlContext,
+        conn_name: &'a String,
         ev: Arc<Event>,
-    ) {
-        if conn_name != "input" {
-            return;
-        }
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            if conn_name != "input" {
+                return;
+            }
 
-        let headers = ctx.event_headers.as_ref().cloned().unwrap_or_default();
-        if self.matches(&headers) {
-            ctx.results
-                .send(Event::new(
-                    ctx.event_name.clone().unwrap_or_default(),
-                    "output".to_string(),
-                    headers,
-                    ev.get_data(),
-                ))
-                .await
-                .unwrap();
-        }
+            let headers = ctx.event_headers.as_ref().cloned().unwrap_or_default();
+            if self.matches(&headers) {
+                ctx.results
+                    .send(Event::new(
+                        ctx.event_name.clone().unwrap_or_default(),
+                        "output".to_string(),
+                        headers,
+                        ev.get_data(),
+                    ))
+                    .await
+                    .unwrap();
+            }
+        })
     }
 }
 
