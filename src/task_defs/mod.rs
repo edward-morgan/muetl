@@ -88,39 +88,38 @@ macro_rules! impl_operator_handler {
 
     // Internal rule to implement the Operator trait
     (@impl_trait $ty:ty, $($conn:literal => $input_ty:ty),*) => {
+        #[async_trait::async_trait]
         impl $crate::task_defs::operator::Operator for $ty {
-            fn handle_event_for_conn<'a>(
-                &'a mut self,
-                ctx: &'a $crate::task_defs::MuetlContext,
-                conn_name: &'a String,
+            async fn handle_event_for_conn(
+                &mut self,
+                ctx: &$crate::task_defs::MuetlContext,
+                conn_name: &String,
                 ev: std::sync::Arc<$crate::messages::event::Event>,
-            ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
-                Box::pin(async move {
-                    match conn_name.as_str() {
-                        $(
-                            $conn => {
-                                if let Some(data) = ev.get_data().downcast_ref::<$input_ty>() {
-                                    <Self as $crate::task_defs::Input<$input_ty>>::handle(self, ctx, data).await;
-                                } else {
-                                    tracing::warn!(
-                                        conn_name = %conn_name,
-                                        expected_type = ::std::any::type_name::<$input_ty>(),
-                                        actual_type = ?ev.get_data().type_id(),
-                                        event_name = %ev.name,
-                                        "Type mismatch: failed to downcast event data to expected type"
-                                    );
-                                }
+            ) {
+                match conn_name.as_str() {
+                    $(
+                        $conn => {
+                            if let Some(data) = ev.get_data().downcast_ref::<$input_ty>() {
+                                <Self as $crate::task_defs::Input<$input_ty>>::handle(self, ctx, data).await;
+                            } else {
+                                tracing::warn!(
+                                    conn_name = %conn_name,
+                                    expected_type = ::std::any::type_name::<$input_ty>(),
+                                    actual_type = ?ev.get_data().type_id(),
+                                    event_name = %ev.name,
+                                    "Type mismatch: failed to downcast event data to expected type"
+                                );
                             }
-                        )*
-                        _ => {
-                            tracing::warn!(
-                                conn_name = %conn_name,
-                                event_name = %ev.name,
-                                "Unknown connection name for operator"
-                            );
                         }
+                    )*
+                    _ => {
+                        tracing::warn!(
+                            conn_name = %conn_name,
+                            event_name = %ev.name,
+                            "Unknown connection name for operator"
+                        );
                     }
-                })
+                }
             }
         }
     };
@@ -188,39 +187,38 @@ macro_rules! impl_sink_handler {
 
     // Internal rule to implement the Sink trait
     (@impl_trait $ty:ty, $($conn:literal => $input_ty:ty),*) => {
+        #[async_trait::async_trait]
         impl $crate::task_defs::sink::Sink for $ty {
-            fn handle_event_for_conn<'a>(
-                &'a mut self,
-                ctx: &'a $crate::task_defs::MuetlSinkContext,
-                conn_name: &'a String,
+            async fn handle_event_for_conn(
+                &mut self,
+                ctx: &$crate::task_defs::MuetlSinkContext,
+                conn_name: &String,
                 ev: std::sync::Arc<$crate::messages::event::Event>,
-            ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
-                Box::pin(async move {
-                    match conn_name.as_str() {
-                        $(
-                            $conn => {
-                                if let Some(data) = ev.get_data().downcast_ref::<$input_ty>() {
-                                    <Self as $crate::task_defs::SinkInput<$input_ty>>::handle(self, ctx, data).await;
-                                } else {
-                                    tracing::warn!(
-                                        conn_name = %conn_name,
-                                        expected_type = ::std::any::type_name::<$input_ty>(),
-                                        actual_type = ?ev.get_data().type_id(),
-                                        event_name = %ev.name,
-                                        "Type mismatch: failed to downcast event data to expected type"
-                                    );
-                                }
+            ) {
+                match conn_name.as_str() {
+                    $(
+                        $conn => {
+                            if let Some(data) = ev.get_data().downcast_ref::<$input_ty>() {
+                                <Self as $crate::task_defs::SinkInput<$input_ty>>::handle(self, ctx, data).await;
+                            } else {
+                                tracing::warn!(
+                                    conn_name = %conn_name,
+                                    expected_type = ::std::any::type_name::<$input_ty>(),
+                                    actual_type = ?ev.get_data().type_id(),
+                                    event_name = %ev.name,
+                                    "Type mismatch: failed to downcast event data to expected type"
+                                );
                             }
-                        )*
-                        _ => {
-                            tracing::warn!(
-                                conn_name = %conn_name,
-                                event_name = %ev.name,
-                                "Unknown connection name for sink"
-                            );
                         }
+                    )*
+                    _ => {
+                        tracing::warn!(
+                            conn_name = %conn_name,
+                            event_name = %ev.name,
+                            "Unknown connection name for sink"
+                        );
                     }
-                })
+                }
             }
         }
     };
@@ -569,8 +567,7 @@ pub trait ConfigTemplate {
 /// conn_name.
 pub trait Input<T> {
     const conn_name: &'static str;
-    fn handle<'a>(&'a mut self, ctx: &'a MuetlContext, input: &'a T)
-        -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;
+    async fn handle(&mut self, ctx: &MuetlContext, input: &T);
 }
 
 /// Users should implement SinkInput<Some Type> to declare that their Sink is
@@ -578,8 +575,7 @@ pub trait Input<T> {
 /// conn_name.
 pub trait SinkInput<T> {
     const conn_name: &'static str;
-    fn handle<'a>(&'a mut self, ctx: &'a MuetlSinkContext, input: &'a T)
-        -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;
+    async fn handle(&mut self, ctx: &MuetlSinkContext, input: &T);
 }
 
 /// Users should implement Output<Some Type> to declare that their Daemon,

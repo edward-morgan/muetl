@@ -11,7 +11,9 @@
 //! - `s3_etag`: ETag (entity tag), if available
 //! - `s3_last_modified`: Last modified timestamp as ISO 8601 string, if available
 
-use std::{collections::HashSet, future::Future, pin::Pin};
+use std::collections::HashSet;
+
+use async_trait::async_trait;
 
 use aws_sdk_s3::Client as S3Client;
 use muetl::{impl_config_template, impl_source_handler, prelude::*};
@@ -188,67 +190,66 @@ impl Output<()> for S3ListSource {
     const conn_name: &'static str = "object";
 }
 
+#[async_trait]
 impl Source for S3ListSource {
-    fn run<'a>(&'a mut self, ctx: &'a MuetlContext) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            self.ensure_client().await;
+    async fn run(&mut self, ctx: &MuetlContext) {
+        self.ensure_client().await;
 
-            let client = self.client.as_ref().unwrap();
+        let client = self.client.as_ref().unwrap();
 
-            let mut request = client.list_objects_v2().bucket(&self.bucket);
+        let mut request = client.list_objects_v2().bucket(&self.bucket);
 
-            if let Some(prefix) = &self.prefix {
-                request = request.prefix(prefix);
-            }
+        if let Some(prefix) = &self.prefix {
+            request = request.prefix(prefix);
+        }
 
-            match request.send().await {
-                Ok(output) => {
-                    let contents = output.contents();
+        match request.send().await {
+            Ok(output) => {
+                let contents = output.contents();
 
-                    for object in contents {
-                        if let Some(key) = object.key() {
-                            let size = object.size().unwrap_or(0);
+                for object in contents {
+                    if let Some(key) = object.key() {
+                        let size = object.size().unwrap_or(0);
 
-                            // Skip if already seen or doesn't pass filters
-                            if self.seen_keys.contains(key) || !self.passes_filters(key, size) {
-                                continue;
-                            }
-
-                            self.seen_keys.insert(key.to_string());
-
-                            // Build headers with S3 metadata
-                            let mut headers = HashMap::new();
-                            headers.insert("s3_bucket".to_string(), self.bucket.clone());
-                            headers.insert("s3_key".to_string(), key.to_string());
-                            headers.insert("s3_size".to_string(), size.to_string());
-                            if let Some(etag) = object.e_tag() {
-                                headers.insert("s3_etag".to_string(), etag.to_string());
-                            }
-                            if let Some(last_modified) = object.last_modified() {
-                                headers
-                                    .insert("s3_last_modified".to_string(), last_modified.to_string());
-                            }
-
-                            let event_name = format!("s3://{}/{}", self.bucket, key);
-                            ctx.results
-                                .send(Event::new(
-                                    event_name,
-                                    "object".to_string(),
-                                    headers,
-                                    Arc::new(()),
-                                ))
-                                .await
-                                .unwrap();
+                        // Skip if already seen or doesn't pass filters
+                        if self.seen_keys.contains(key) || !self.passes_filters(key, size) {
+                            continue;
                         }
-                    }
 
-                    self.initialized = true;
+                        self.seen_keys.insert(key.to_string());
+
+                        // Build headers with S3 metadata
+                        let mut headers = HashMap::new();
+                        headers.insert("s3_bucket".to_string(), self.bucket.clone());
+                        headers.insert("s3_key".to_string(), key.to_string());
+                        headers.insert("s3_size".to_string(), size.to_string());
+                        if let Some(etag) = object.e_tag() {
+                            headers.insert("s3_etag".to_string(), etag.to_string());
+                        }
+                        if let Some(last_modified) = object.last_modified() {
+                            headers
+                                .insert("s3_last_modified".to_string(), last_modified.to_string());
+                        }
+
+                        let event_name = format!("s3://{}/{}", self.bucket, key);
+                        ctx.results
+                            .send(Event::new(
+                                event_name,
+                                "object".to_string(),
+                                headers,
+                                Arc::new(()),
+                            ))
+                            .await
+                            .unwrap();
+                    }
                 }
-                Err(e) => {
-                    tracing::error!(error = ?e, bucket = %self.bucket, "Error listing S3 objects");
-                }
+
+                self.initialized = true;
             }
-        })
+            Err(e) => {
+                tracing::error!(error = ?e, bucket = %self.bucket, "Error listing S3 objects");
+            }
+        }
     }
 }
 

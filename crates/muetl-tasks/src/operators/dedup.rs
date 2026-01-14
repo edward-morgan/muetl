@@ -1,6 +1,8 @@
 //! Dedup operator - suppresses consecutive duplicate events.
 
-use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
+
+use async_trait::async_trait;
 
 use muetl::{
     impl_config_template,
@@ -54,43 +56,42 @@ impl SelfDescribing for Dedup {
     }
 }
 
+#[async_trait]
 impl Operator for Dedup {
-    fn handle_event_for_conn<'a>(
-        &'a mut self,
-        ctx: &'a MuetlContext,
-        conn_name: &'a String,
+    async fn handle_event_for_conn(
+        &mut self,
+        ctx: &MuetlContext,
+        conn_name: &String,
         ev: Arc<Event>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            if conn_name != "input" {
-                return;
-            }
+    ) {
+        if conn_name != "input" {
+            return;
+        }
 
-            let headers = ctx.event_headers.as_ref().cloned().unwrap_or_default();
-            let current_value = headers.get(&self.dedup_key).cloned();
+        let headers = ctx.event_headers.as_ref().cloned().unwrap_or_default();
+        let current_value = headers.get(&self.dedup_key).cloned();
 
-            let should_emit = match (&self.last_value, &current_value) {
-                // No dedup key in event - always emit
-                (_, None) => true,
-                // First event with this key - emit
-                (None, Some(_)) => true,
-                // Compare with previous
-                (Some(last), Some(current)) => last != current,
-            };
+        let should_emit = match (&self.last_value, &current_value) {
+            // No dedup key in event - always emit
+            (_, None) => true,
+            // First event with this key - emit
+            (None, Some(_)) => true,
+            // Compare with previous
+            (Some(last), Some(current)) => last != current,
+        };
 
-            if should_emit {
-                self.last_value = current_value;
-                ctx.results
-                    .send(Event::new(
-                        ctx.event_name.clone().unwrap_or_default(),
-                        "output".to_string(),
-                        headers,
-                        ev.get_data(),
-                    ))
-                    .await
-                    .unwrap();
-            }
-        })
+        if should_emit {
+            self.last_value = current_value;
+            ctx.results
+                .send(Event::new(
+                    ctx.event_name.clone().unwrap_or_default(),
+                    "output".to_string(),
+                    headers,
+                    ev.get_data(),
+                ))
+                .await
+                .unwrap();
+        }
     }
 }
 

@@ -63,23 +63,17 @@ impl TaskDef for FileSink {
 
 impl SinkInput<String> for FileSink {
     const conn_name: &'static str = "input";
-    fn handle<'a>(
-        &'a mut self,
-        _ctx: &'a MuetlSinkContext,
-        data: &'a String,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            let Some(ref mut writer) = self.writer else {
-                return;
-            };
+    async fn handle(&mut self, _ctx: &MuetlSinkContext, data: &String) {
+        let Some(ref mut writer) = self.writer else {
+            return;
+        };
 
-            let _ = writeln!(writer, "{}", data);
-            self.event_count += 1;
+        let _ = writeln!(writer, "{}", data);
+        self.event_count += 1;
 
-            if self.flush_every > 0 && self.event_count % self.flush_every == 0 {
-                let _ = writer.flush();
-            }
-        })
+        if self.flush_every > 0 && self.event_count % self.flush_every == 0 {
+            let _ = writer.flush();
+        }
     }
 }
 

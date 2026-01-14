@@ -1,6 +1,8 @@
 //! CronSource - emits trigger events on a cron schedule.
 
-use std::{collections::HashMap, future::Future, pin::Pin, str::FromStr, sync::Arc};
+use std::{collections::HashMap, str::FromStr, sync::Arc};
+
+use async_trait::async_trait;
 
 use chrono::Utc;
 use cron::Schedule;
@@ -44,42 +46,41 @@ impl Output<()> for CronSource {
     const conn_name: &'static str = "output";
 }
 
+#[async_trait]
 impl Source for CronSource {
-    fn run<'a>(&'a mut self, ctx: &'a MuetlContext) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            // Check if we've hit the count limit (0 means unlimited)
-            if self.count > 0 && self.emitted >= self.count {
+    async fn run(&mut self, ctx: &MuetlContext) {
+        // Check if we've hit the count limit (0 means unlimited)
+        if self.count > 0 && self.emitted >= self.count {
+            ctx.status.send(Status::Finished).await.unwrap();
+            return;
+        }
+
+        // Find the next scheduled time
+        let now = Utc::now();
+        let next = match self.schedule.upcoming(Utc).next() {
+            Some(next) => next,
+            None => {
                 ctx.status.send(Status::Finished).await.unwrap();
                 return;
             }
+        };
 
-            // Find the next scheduled time
-            let now = Utc::now();
-            let next = match self.schedule.upcoming(Utc).next() {
-                Some(next) => next,
-                None => {
-                    ctx.status.send(Status::Finished).await.unwrap();
-                    return;
-                }
-            };
+        // Sleep until the next scheduled time
+        let duration = (next - now).to_std().unwrap_or_default();
+        tokio::time::sleep(duration).await;
 
-            // Sleep until the next scheduled time
-            let duration = (next - now).to_std().unwrap_or_default();
-            tokio::time::sleep(duration).await;
+        // Emit the trigger event
+        ctx.results
+            .send(Event::new(
+                format!("cron-{}", self.emitted),
+                "output".to_string(),
+                HashMap::new(),
+                Arc::new(()),
+            ))
+            .await
+            .unwrap();
 
-            // Emit the trigger event
-            ctx.results
-                .send(Event::new(
-                    format!("cron-{}", self.emitted),
-                    "output".to_string(),
-                    HashMap::new(),
-                    Arc::new(()),
-                ))
-                .await
-                .unwrap();
-
-            self.emitted += 1;
-        })
+        self.emitted += 1;
     }
 }
 

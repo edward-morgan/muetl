@@ -1,6 +1,8 @@
 //! SequenceSource - generates a sequence of integers.
 
-use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
+
+use async_trait::async_trait;
 
 use muetl::{
     impl_config_template, impl_source_handler,
@@ -54,24 +56,23 @@ impl Output<i64> for SequenceSource {
     const conn_name: &'static str = "output";
 }
 
+#[async_trait]
 impl Source for SequenceSource {
-    fn run<'a>(&'a mut self, ctx: &'a MuetlContext) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            if self.is_done() {
-                ctx.status.send(Status::Finished).await.unwrap();
-            } else {
-                ctx.results
-                    .send(Event::new(
-                        format!("seq-{}", self.current),
-                        "output".to_string(),
-                        HashMap::new(),
-                        Arc::new(self.current),
-                    ))
-                    .await
-                    .unwrap();
-                self.current += self.step;
-            }
-        })
+    async fn run(&mut self, ctx: &MuetlContext) {
+        if self.is_done() {
+            ctx.status.send(Status::Finished).await.unwrap();
+        } else {
+            ctx.results
+                .send(Event::new(
+                    format!("seq-{}", self.current),
+                    "output".to_string(),
+                    HashMap::new(),
+                    Arc::new(self.current),
+                ))
+                .await
+                .unwrap();
+            self.current += self.step;
+        }
     }
 }
 

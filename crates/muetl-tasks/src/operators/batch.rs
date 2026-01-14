@@ -3,11 +3,11 @@
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
-    future::Future,
-    pin::Pin,
     sync::Arc,
     time::{Duration, Instant},
 };
+
+use async_trait::async_trait;
 
 use muetl::{
     impl_config_template,
@@ -108,46 +108,40 @@ impl SelfDescribing for Batch {
     }
 }
 
+#[async_trait]
 impl Operator for Batch {
-    fn handle_event_for_conn<'a>(
-        &'a mut self,
-        ctx: &'a MuetlContext,
-        conn_name: &'a String,
+    async fn handle_event_for_conn(
+        &mut self,
+        ctx: &MuetlContext,
+        conn_name: &String,
         ev: Arc<Event>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            if conn_name != "input" {
-                return;
-            }
+    ) {
+        if conn_name != "input" {
+            return;
+        }
 
-            // Start timing if this is the first event in the batch
-            if self.batch_start.is_none() {
-                self.batch_start = Some(Instant::now());
-                self.first_headers = ctx.event_headers.clone();
-            }
+        // Start timing if this is the first event in the batch
+        if self.batch_start.is_none() {
+            self.batch_start = Some(Instant::now());
+            self.first_headers = ctx.event_headers.clone();
+        }
 
-            self.buffer.push(ev.get_data());
+        self.buffer.push(ev.get_data());
 
-            if self.should_flush() {
-                self.flush(ctx).await;
-            }
-        })
+        if self.should_flush() {
+            self.flush(ctx).await;
+        }
     }
 
-    fn prepare_shutdown<'a>(
-        &'a mut self,
-        ctx: &'a MuetlContext,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            // Flush any remaining buffered events before shutdown
-            if !self.buffer.is_empty() {
-                tracing::info!(
-                    buffered_events = self.buffer.len(),
-                    "Flushing pending batch during shutdown"
-                );
-                self.flush(ctx).await;
-            }
-        })
+    async fn prepare_shutdown(&mut self, ctx: &MuetlContext) {
+        // Flush any remaining buffered events before shutdown
+        if !self.buffer.is_empty() {
+            tracing::info!(
+                buffered_events = self.buffer.len(),
+                "Flushing pending batch during shutdown"
+            );
+            self.flush(ctx).await;
+        }
     }
 }
 

@@ -4,7 +4,9 @@
 //! (String, integers, floats, bools). Non-JSON inputs are automatically converted
 //! to JSON before being passed to the script.
 
-use std::{any::TypeId, cell::RefCell, collections::HashMap, future::Future, pin::Pin, sync::Arc};
+use std::{any::TypeId, cell::RefCell, collections::HashMap, sync::Arc};
+
+use async_trait::async_trait;
 
 use muetl::{
     impl_config_template,
@@ -142,53 +144,52 @@ impl SelfDescribing for JavaScript {
     }
 }
 
+#[async_trait]
 impl Operator for JavaScript {
-    fn handle_event_for_conn<'a>(
-        &'a mut self,
-        ctx: &'a MuetlContext,
-        conn_name: &'a String,
+    async fn handle_event_for_conn(
+        &mut self,
+        ctx: &MuetlContext,
+        conn_name: &String,
         ev: Arc<Event>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            if conn_name != "input" {
-                return;
+    ) {
+        if conn_name != "input" {
+            return;
+        }
+
+        let data = ev.get_data();
+
+        // Try to get input as JSON, either directly or by converting common types
+        let input: JsonValue = if let Some(json) = data.downcast_ref::<JsonValue>() {
+            // Already a JsonValue, use directly
+            json.clone()
+        } else if let Some(v) = try_serialize_common_types(&data) {
+            // Try common serializable types
+            v
+        } else {
+            tracing::error!(
+                "JavaScript operator received non-serializable input. \
+                 Input must be JsonValue or a common primitive type."
+            );
+            return;
+        };
+
+        match self.execute(&input) {
+            Ok(output) => {
+                let headers = ctx.event_headers.clone().unwrap_or_default();
+                ctx.results
+                    .send(Event::new(
+                        ctx.event_name.clone().unwrap_or_default(),
+                        "output".to_string(),
+                        headers,
+                        Arc::new(output),
+                    ))
+                    .await
+                    .unwrap();
             }
-
-            let data = ev.get_data();
-
-            // Try to get input as JSON, either directly or by converting common types
-            let input: JsonValue = if let Some(json) = data.downcast_ref::<JsonValue>() {
-                // Already a JsonValue, use directly
-                json.clone()
-            } else if let Some(v) = try_serialize_common_types(&data) {
-                // Try common serializable types
-                v
-            } else {
-                tracing::error!(
-                    "JavaScript operator received non-serializable input. \
-                     Input must be JsonValue or a common primitive type."
-                );
-                return;
-            };
-
-            match self.execute(&input) {
-                Ok(output) => {
-                    let headers = ctx.event_headers.clone().unwrap_or_default();
-                    ctx.results
-                        .send(Event::new(
-                            ctx.event_name.clone().unwrap_or_default(),
-                            "output".to_string(),
-                            headers,
-                            Arc::new(output),
-                        ))
-                        .await
-                        .unwrap();
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, "JavaScript execution failed");
-                }
+            Err(e) => {
+                tracing::error!(error = %e, "JavaScript execution failed");
             }
-        })
+        }
     }
 }
 
