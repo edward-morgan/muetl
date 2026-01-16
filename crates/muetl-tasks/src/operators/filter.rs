@@ -134,8 +134,8 @@ impl SelfDescribing for Filter {
 
         let mut outputs = HashMap::new();
         outputs.insert("output".to_string(), vec![]);
-        outputs.insert("input".to_string(), vec![TypeId::of::<()>()]);
-        outputs.insert("input".to_string(), vec![TypeId::of::<String>()]);
+        outputs.insert("output".to_string(), vec![TypeId::of::<()>()]);
+        outputs.insert("output".to_string(), vec![TypeId::of::<String>()]);
 
         TaskInfo {
             task_id: "urn:muetl:filter".to_string(),
