@@ -1,6 +1,6 @@
 //! Filter operator - passes through events that match header conditions.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{any::TypeId, collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 
@@ -129,10 +129,13 @@ impl TaskDef for Filter {}
 impl SelfDescribing for Filter {
     fn task_info() -> TaskInfo {
         let mut inputs = HashMap::new();
-        inputs.insert("input".to_string(), vec![]);
+        inputs.insert("input".to_string(), vec![TypeId::of::<()>()]);
+        inputs.insert("input".to_string(), vec![TypeId::of::<String>()]);
 
         let mut outputs = HashMap::new();
         outputs.insert("output".to_string(), vec![]);
+        outputs.insert("input".to_string(), vec![TypeId::of::<()>()]);
+        outputs.insert("input".to_string(), vec![TypeId::of::<String>()]);
 
         TaskInfo {
             task_id: "urn:muetl:filter".to_string(),
