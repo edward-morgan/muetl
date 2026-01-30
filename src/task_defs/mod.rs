@@ -19,6 +19,22 @@ use crate::messages::{event::Event, Status};
 /// and type downcasting logic. It calls the `Input<T>::handle` method for each
 /// type registered with the macro.
 ///
+/// # Multiple Types Per Input
+///
+/// You can specify multiple types for the same input connection using bracket syntax.
+/// The macro will try to downcast to each type in order, calling the first handler that matches:
+///
+/// ```ignore
+/// impl_operator_handler!(
+///     MyOperator,
+///     task_id = "my_op",
+///     inputs(
+///         "data" => [serde_json::Value, String],  // Try these types in order
+///     ),
+///     outputs("output" => String)
+/// );
+/// ```
+///
 /// # Example
 ///
 /// ```ignore
@@ -47,7 +63,83 @@ use crate::messages::{event::Event, Status};
 #[macro_export]
 macro_rules! impl_operator_handler {
     // New pattern with task_id for self-describing registration
-    ($ty:ty, task_id = $task_id:literal, inputs($($in_conn:literal => $input_ty:ty),* $(,)?), outputs($($out_conn:literal => $output_ty:ty),* $(,)?) $(,)?) => {
+    ($ty:ty, task_id = $task_id:literal, inputs($($inputs:tt)*), outputs($($outputs:tt)*) $(,)?) => {
+        // Parse and expand inputs/outputs, then delegate to implementation
+        impl_operator_handler!(@expand_and_impl $ty, $task_id, inputs($($inputs)*), outputs($($outputs)*));
+    };
+
+    // Expand inputs and outputs, then generate implementations
+    (@expand_and_impl $ty:ty, $task_id:literal, inputs($($inputs:tt)*), outputs($($outputs:tt)*)) => {
+        // First, expand the inputs and outputs syntax
+        impl_operator_handler!(@impl_with_expanded $ty, $task_id,
+            inputs_expanded[], inputs_to_parse[$($inputs)*],
+            outputs_expanded[], outputs_to_parse[$($outputs)*]
+        );
+    };
+
+    // Parse inputs: handle "conn" => [Type1, Type2, ...]
+    (@impl_with_expanded $ty:ty, $task_id:literal,
+        inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
+        inputs_to_parse[$conn:literal => [$($types:ty),+ $(,)?] $(, $($rest_in:tt)*)?],
+        outputs_expanded[$($out_exp:tt)*], outputs_to_parse[$($rest_out:tt)*]
+    ) => {
+        impl_operator_handler!(@impl_with_expanded $ty, $task_id,
+            inputs_expanded[$($in_conn_exp => $input_ty_exp,)* $($conn => $types),*],
+            inputs_to_parse[$($($rest_in)*)?],
+            outputs_expanded[$($out_exp)*], outputs_to_parse[$($rest_out)*]
+        );
+    };
+
+    // Parse inputs: handle "conn" => Type
+    (@impl_with_expanded $ty:ty, $task_id:literal,
+        inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
+        inputs_to_parse[$conn:literal => $single_type:ty $(, $($rest_in:tt)*)?],
+        outputs_expanded[$($out_exp:tt)*], outputs_to_parse[$($rest_out:tt)*]
+    ) => {
+        impl_operator_handler!(@impl_with_expanded $ty, $task_id,
+            inputs_expanded[$($in_conn_exp => $input_ty_exp,)* $conn => $single_type],
+            inputs_to_parse[$($($rest_in)*)?],
+            outputs_expanded[$($out_exp)*], outputs_to_parse[$($rest_out)*]
+        );
+    };
+
+    // Done parsing inputs, now parse outputs: handle "conn" => [Type1, Type2, ...]
+    (@impl_with_expanded $ty:ty, $task_id:literal,
+        inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
+        inputs_to_parse[],
+        outputs_expanded[$($out_conn_exp:literal => $output_ty_exp:ty),*],
+        outputs_to_parse[$conn:literal => [$($types:ty),+ $(,)?] $(, $($rest:tt)*)?]
+    ) => {
+        impl_operator_handler!(@impl_with_expanded $ty, $task_id,
+            inputs_expanded[$($in_conn_exp => $input_ty_exp),*],
+            inputs_to_parse[],
+            outputs_expanded[$($out_conn_exp => $output_ty_exp,)* $($conn => $types),*],
+            outputs_to_parse[$($($rest)*)?]
+        );
+    };
+
+    // Done parsing inputs, now parse outputs: handle "conn" => Type
+    (@impl_with_expanded $ty:ty, $task_id:literal,
+        inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
+        inputs_to_parse[],
+        outputs_expanded[$($out_conn_exp:literal => $output_ty_exp:ty),*],
+        outputs_to_parse[$conn:literal => $single_type:ty $(, $($rest:tt)*)?]
+    ) => {
+        impl_operator_handler!(@impl_with_expanded $ty, $task_id,
+            inputs_expanded[$($in_conn_exp => $input_ty_exp),*],
+            inputs_to_parse[],
+            outputs_expanded[$($out_conn_exp => $output_ty_exp,)* $conn => $single_type],
+            outputs_to_parse[$($($rest)*)?]
+        );
+    };
+
+    // All parsing complete, generate the implementations
+    (@impl_with_expanded $ty:ty, $task_id:literal,
+        inputs_expanded[$($in_conn:literal => $input_ty:ty),*],
+        inputs_to_parse[],
+        outputs_expanded[$($out_conn:literal => $output_ty:ty),*],
+        outputs_to_parse[]
+    ) => {
         // Generate the Operator trait implementation
         impl_operator_handler!(@impl_trait $ty, $($in_conn => $input_ty),*);
 
@@ -96,29 +188,33 @@ macro_rules! impl_operator_handler {
                 conn_name: &String,
                 ev: std::sync::Arc<$crate::messages::event::Event>,
             ) {
-                match conn_name.as_str() {
-                    $(
-                        $conn => {
-                            if let Some(data) = ev.get_data().downcast_ref::<$input_ty>() {
-                                <Self as $crate::task_defs::Input<$input_ty>>::handle(self, ctx, data).await;
-                            } else {
-                                tracing::warn!(
-                                    conn_name = %conn_name,
-                                    expected_type = ::std::any::type_name::<$input_ty>(),
-                                    actual_type = ?ev.get_data().type_id(),
-                                    event_name = %ev.name,
-                                    "Type mismatch: failed to downcast event data to expected type"
-                                );
-                            }
+                // Try each connection/type pair in order
+                $(
+                    if conn_name == $conn {
+                        if let Some(data) = ev.get_data().downcast_ref::<$input_ty>() {
+                            <Self as $crate::task_defs::Input<$input_ty>>::handle(self, ctx, data).await;
+                            return;
                         }
-                    )*
-                    _ => {
-                        tracing::warn!(
-                            conn_name = %conn_name,
-                            event_name = %ev.name,
-                            "Unknown connection name for operator"
-                        );
                     }
+                )*
+
+                // If we get here, either the connection was unknown or all type downcasts failed
+                // Collect all known connection names for better error reporting
+                let known_connections: ::std::collections::HashSet<&str> = vec![$($conn),*].into_iter().collect();
+
+                if known_connections.contains(conn_name.as_str()) {
+                    tracing::warn!(
+                        conn_name = %conn_name,
+                        actual_type = ?ev.get_data().type_id(),
+                        event_name = %ev.name,
+                        "Type mismatch: failed to downcast event data to any expected type for this connection"
+                    );
+                } else {
+                    tracing::warn!(
+                        conn_name = %conn_name,
+                        event_name = %ev.name,
+                        "Unknown connection name for operator"
+                    );
                 }
             }
         }
@@ -130,6 +226,19 @@ macro_rules! impl_operator_handler {
 /// This macro reduces boilerplate by generating the connection name matching
 /// and type downcasting logic. It calls the `SinkInput<T>::handle` method for each
 /// type registered with the macro.
+///
+/// # Multiple Types Per Input
+///
+/// You can specify multiple types for the same input connection using bracket syntax.
+/// The macro will try to downcast to each type in order, calling the first handler that matches:
+///
+/// ```ignore
+/// impl_sink_handler!(
+///     MySink,
+///     task_id = "my_sink",
+///     "input" => [serde_json::Value, String],  // Try these types in order
+/// );
+/// ```
 ///
 /// # Example
 ///
@@ -154,7 +263,45 @@ macro_rules! impl_operator_handler {
 #[macro_export]
 macro_rules! impl_sink_handler {
     // New pattern with task_id for self-describing registration
-    ($ty:ty, task_id = $task_id:literal, $($conn:literal => $input_ty:ty),* $(,)?) => {
+    ($ty:ty, task_id = $task_id:literal, $($inputs:tt)*) => {
+        // Parse and expand inputs, then delegate to implementation
+        impl_sink_handler!(@expand_and_impl $ty, $task_id, inputs($($inputs)*));
+    };
+
+    // Expand inputs, then generate implementations
+    (@expand_and_impl $ty:ty, $task_id:literal, inputs($($inputs:tt)*)) => {
+        impl_sink_handler!(@impl_with_expanded $ty, $task_id,
+            inputs_expanded[], inputs_to_parse[$($inputs)*]
+        );
+    };
+
+    // Parse inputs: handle "conn" => [Type1, Type2, ...]
+    (@impl_with_expanded $ty:ty, $task_id:literal,
+        inputs_expanded[$($conn_exp:literal => $input_ty_exp:ty),*],
+        inputs_to_parse[$conn:literal => [$($types:ty),+ $(,)?] $(, $($rest:tt)*)?]
+    ) => {
+        impl_sink_handler!(@impl_with_expanded $ty, $task_id,
+            inputs_expanded[$($conn_exp => $input_ty_exp,)* $($conn => $types),*],
+            inputs_to_parse[$($($rest)*)?]
+        );
+    };
+
+    // Parse inputs: handle "conn" => Type
+    (@impl_with_expanded $ty:ty, $task_id:literal,
+        inputs_expanded[$($conn_exp:literal => $input_ty_exp:ty),*],
+        inputs_to_parse[$conn:literal => $single_type:ty $(, $($rest:tt)*)?]
+    ) => {
+        impl_sink_handler!(@impl_with_expanded $ty, $task_id,
+            inputs_expanded[$($conn_exp => $input_ty_exp,)* $conn => $single_type],
+            inputs_to_parse[$($($rest)*)?]
+        );
+    };
+
+    // All parsing complete, generate the implementations
+    (@impl_with_expanded $ty:ty, $task_id:literal,
+        inputs_expanded[$($conn:literal => $input_ty:ty),*],
+        inputs_to_parse[]
+    ) => {
         // Generate the Sink trait implementation
         impl_sink_handler!(@impl_trait $ty, $($conn => $input_ty),*);
 
@@ -195,29 +342,33 @@ macro_rules! impl_sink_handler {
                 conn_name: &String,
                 ev: std::sync::Arc<$crate::messages::event::Event>,
             ) {
-                match conn_name.as_str() {
-                    $(
-                        $conn => {
-                            if let Some(data) = ev.get_data().downcast_ref::<$input_ty>() {
-                                <Self as $crate::task_defs::SinkInput<$input_ty>>::handle(self, ctx, data).await;
-                            } else {
-                                tracing::warn!(
-                                    conn_name = %conn_name,
-                                    expected_type = ::std::any::type_name::<$input_ty>(),
-                                    actual_type = ?ev.get_data().type_id(),
-                                    event_name = %ev.name,
-                                    "Type mismatch: failed to downcast event data to expected type"
-                                );
-                            }
+                // Try each connection/type pair in order
+                $(
+                    if conn_name == $conn {
+                        if let Some(data) = ev.get_data().downcast_ref::<$input_ty>() {
+                            <Self as $crate::task_defs::SinkInput<$input_ty>>::handle(self, ctx, data).await;
+                            return;
                         }
-                    )*
-                    _ => {
-                        tracing::warn!(
-                            conn_name = %conn_name,
-                            event_name = %ev.name,
-                            "Unknown connection name for sink"
-                        );
                     }
+                )*
+
+                // If we get here, either the connection was unknown or all type downcasts failed
+                // Collect all known connection names for better error reporting
+                let known_connections: ::std::collections::HashSet<&str> = vec![$($conn),*].into_iter().collect();
+
+                if known_connections.contains(conn_name.as_str()) {
+                    tracing::warn!(
+                        conn_name = %conn_name,
+                        actual_type = ?ev.get_data().type_id(),
+                        event_name = %ev.name,
+                        "Type mismatch: failed to downcast event data to any expected type for this connection"
+                    );
+                } else {
+                    tracing::warn!(
+                        conn_name = %conn_name,
+                        event_name = %ev.name,
+                        "Unknown connection name for sink"
+                    );
                 }
             }
         }

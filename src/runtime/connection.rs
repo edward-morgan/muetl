@@ -145,10 +145,10 @@ pub struct OutgoingConnections {
 impl From<&Vec<&Connection>> for OutgoingConnections {
     fn from(value: &Vec<&Connection>) -> Self {
         let mut conns = HashMap::new();
-        value.iter().for_each(|c| {
+        value.iter().for_each(|&c| {
             conns.insert(
                 c.sender_conn_name.clone(),
-                Arc::new(OutgoingConnection::from(&c)),
+                Arc::new(OutgoingConnection::from(c)),
             );
         });
         Self { conns }
