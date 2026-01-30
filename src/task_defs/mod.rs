@@ -213,6 +213,7 @@ macro_rules! impl_operator_handler {
                     tracing::warn!(
                         conn_name = %conn_name,
                         event_name = %ev.name,
+                        known_connections = ?known_connections,
                         "Unknown connection name for operator"
                     );
                 }
