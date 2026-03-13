@@ -75,7 +75,7 @@ impl Source for CronSource {
                 format!("cron-{}", self.emitted),
                 "output".to_string(),
                 HashMap::new(),
-                Arc::new(()),
+                Arc::new(now.to_string()),
             ))
             .await
             .unwrap();
@@ -84,7 +84,7 @@ impl Source for CronSource {
     }
 }
 
-impl_source_handler!(CronSource, task_id = "urn:muetl:source:cron_source", "output" => ());
+impl_source_handler!(CronSource, task_id = "urn:muetl:source:cron_source", "output" => String);
 impl_config_template!(
     CronSource,
     schedule: Str!,
