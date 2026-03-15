@@ -5,7 +5,7 @@ use serde_json::de;
 pub mod event;
 
 /// Tasks can send Status messages to report their current progress and state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Status {
     Progress(f32),
     Active,
@@ -49,6 +49,7 @@ pub struct GetRuntimeInfo {
 }
 
 /// Represents the current state of a single Task in the system, as understood by the Monitor.
+#[derive(Debug)]
 pub struct RuntimeInfo {
     /// The ID of this Task as it has been instantiated in the system. Multiple instances of the
     /// same TaskDef will have different ids.

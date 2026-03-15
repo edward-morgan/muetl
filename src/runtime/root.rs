@@ -244,6 +244,7 @@ impl Actor for Root {
                 let info = RegisterRuntimeInfo {
                     flow_id: args.flow.id.clone(),
                     task_id,
+                    // Note that task_def_id in RegisterRuntimeInfo maps to the task_id in a Flow.
                     task_def_id: node.task_id.clone(),
                     node_id: node.node_id.clone(),
                 };
@@ -294,6 +295,7 @@ impl Actor for Root {
         match reason {
             ActorStopReason::Normal => match self.actor_node_mapping.remove(&id) {
                 Some(_) => {
+                    // Wait for the monitor to reflect the finished status
                     if self.actor_node_mapping.is_empty() {
                         tracing::info!(
                             root_id = self.id,

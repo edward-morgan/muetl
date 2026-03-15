@@ -14,6 +14,8 @@ use kameo::{
 use kameo_actors::pubsub::PubSub;
 use muetl::{
     flow::{Flow, NodeRef, RawEdge, RawFlow, RawNode},
+    messages::GetRuntimeInfo,
+    prelude::Status,
     registry::{Registry, TaskDefInfo, TaskInfo},
     runtime::{monitor_actor::Monitor, root::Root},
     task_defs::ConfigValue,
@@ -82,6 +84,35 @@ fn create_test_registry() -> Registry {
     registry
 }
 
+/// Ensures that all nodes in `flow` are tracked and have finished according to `monitor`.
+async fn all_nodes_complete(flow: &Flow, monitor: ActorRef<Monitor>) {
+    for (node_id, node) in flow.nodes.iter() {
+        // Retrieve the status for that node
+        let req = GetRuntimeInfo {
+            flow_id: flow.id.clone(),
+            node_id: node_id.clone(),
+        };
+        match monitor.ask(req).await {
+            Ok(None) => panic!(
+                "Monitor returned no RuntimeInfo for [flow_id = {}, node_id ={}]",
+                flow.id.clone(),
+                node_id.clone(),
+            ),
+            Ok(Some(info)) => {
+                println!("Info: {:?}", info);
+                assert!(info.node_id == node_id.clone());
+                assert!(info.current_status == Some(Status::Finished));
+            }
+            Err(e) => panic!(
+                "failed to retrieve status for [flow_id = {}, node_id ={}]: {:?}",
+                flow.id.clone(),
+                node_id,
+                e
+            ),
+        }
+    }
+}
+
 /// Test 1: Basic Operator passthrough
 /// Flow: NumberSource -> Adder(+0) -> ResultCollector
 /// Validates that an Operator correctly receives events and forwards them downstream.
@@ -137,7 +168,7 @@ async fn test_basic_node_passthrough() {
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
     let monitor_chan = Spawn::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
     let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
-    let root = Root::new(flow, monitor_chan, monitor_ref);
+    let root = Root::new(flow.clone(), monitor_chan, monitor_ref.clone());
     let root_ref: ActorRef<Root> = Spawn::spawn(root);
     root_ref.wait_for_shutdown().await;
 
@@ -157,6 +188,7 @@ async fn test_basic_node_passthrough() {
         "Expected [0,1,2,3,4], got {:?}",
         sorted_results
     );
+    all_nodes_complete(&flow, monitor_ref.clone()).await
 }
 
 /// Test 2: Single Operator transformation
@@ -211,7 +243,7 @@ async fn test_single_node_transformation() {
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
     let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
     let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
-    let root = Root::new(flow, monitor_chan, monitor_ref);
+    let root = Root::new(flow.clone(), monitor_chan, monitor_ref.clone());
     let root_ref = Root::spawn(root);
     root_ref.wait_for_shutdown().await;
 
@@ -231,6 +263,7 @@ async fn test_single_node_transformation() {
         "Expected [10,11,12,13,14], got {:?}",
         sorted_results
     );
+    all_nodes_complete(&flow, monitor_ref.clone()).await
 }
 
 /// Test 3: Chained Operators
@@ -298,7 +331,7 @@ async fn test_chained_nodes() {
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
     let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
     let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
-    let root = Root::new(flow, monitor_chan, monitor_ref);
+    let root = Root::new(flow.clone(), monitor_chan, monitor_ref.clone());
     let root_ref = Root::spawn(root);
     root_ref.wait_for_shutdown().await;
 
@@ -318,6 +351,7 @@ async fn test_chained_nodes() {
         "Expected [10,12,14,16,18], got {:?}",
         sorted_results
     );
+    all_nodes_complete(&flow, monitor_ref.clone()).await
 }
 
 /// Test 4: Fan-out from Operator
@@ -391,7 +425,7 @@ async fn test_fan_out_from_node() {
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
     let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
     let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
-    let root = Root::new(flow, monitor_chan, monitor_ref);
+    let root = Root::new(flow.clone(), monitor_chan, monitor_ref.clone());
     let root_ref = Root::spawn(root);
     root_ref.wait_for_shutdown().await;
 
@@ -428,6 +462,7 @@ async fn test_fan_out_from_node() {
         "Expected [1,2,3,4,5] in collector_b, got {:?}",
         sorted_b
     );
+    all_nodes_complete(&flow, monitor_ref.clone()).await
 }
 
 /// Test 5: Fan-in to Operator
@@ -495,7 +530,7 @@ async fn test_fan_in_to_node() {
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
     let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
     let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
-    let root = Root::new(flow, monitor_chan, monitor_ref);
+    let root = Root::new(flow.clone(), monitor_chan, monitor_ref.clone());
     let root_ref = Root::spawn(root);
     root_ref.wait_for_shutdown().await;
 
@@ -517,6 +552,7 @@ async fn test_fan_in_to_node() {
         "Expected [100,100,101,101,102,102], got {:?}",
         sorted_results
     );
+    all_nodes_complete(&flow, monitor_ref.clone()).await
 }
 
 /// Test 6: Mixed pipeline
@@ -601,7 +637,7 @@ async fn test_mixed_pipeline() {
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
     let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
     let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
-    let root = Root::new(flow, monitor_chan, monitor_ref);
+    let root = Root::new(flow.clone(), monitor_chan, monitor_ref.clone());
     let root_ref = Root::spawn(root);
     root_ref.wait_for_shutdown().await;
 
@@ -641,4 +677,5 @@ async fn test_mixed_pipeline() {
         "Expected transformed [30,33,36,39,42], got {:?}",
         sorted_transformed
     );
+    all_nodes_complete(&flow, monitor_ref.clone()).await
 }

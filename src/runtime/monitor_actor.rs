@@ -54,16 +54,9 @@ impl Monitor {
         }
     }
 
+    /// Attempt to find the `MonitorRecord` for a node with the given `node_id` in a flow
+    /// with the given `flow_id`.
     fn record_for_node(&self, flow_id: String, node_id: String) -> Option<MonitorRecord> {
-        if let Some(nodes_in_flow) = self.flows_to_node_ids.lock().unwrap().get(&flow_id) {
-            if !nodes_in_flow.contains(&node_id) {
-                return None;
-            }
-        } else {
-            return None;
-        }
-
-        // We know that node_id and flow_id are valid; now search for them
         for record in self.records.lock().unwrap().values() {
             if record.flow_id == flow_id && record.node_id == node_id {
                 return Some(record.clone());
@@ -166,10 +159,10 @@ struct MonitorRecord {
     /// The ID of the Flow that this Task is a part of.
     pub flow_id: String,
     /// The ID of this Task as it has been instantiated in the system. Multiple instances of the
-    /// same TaskDef will have different ids.
+    /// same TaskDef will have different `id`s.
     pub id: u64,
     /// The ID of this TaskDef as it has been registered with the system. Multiple instances of
-    /// the same TaskDef will have the same task_id.
+    /// the same TaskDef will have the same `task_def_id`.
     pub task_def_id: String,
     /// The ID of the Task as it has been instantiated as part of a Flow. This ID is unique in
     /// the context of a single Flow, but not globally.

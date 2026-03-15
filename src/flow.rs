@@ -45,7 +45,7 @@ impl Display for RawEdge {
 }
 
 /// The validated version of a RawFlow, parsed from a RawFlow.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Flow {
     pub id: String,
     /// node_id -> Node
@@ -225,7 +225,7 @@ fn inputs_of(task_info: &TaskInfo, conn_name: &String) -> Option<Vec<TypeId>> {
         TaskDefInfo::SourceDef { .. } => None,
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Node {
     /// The internal identifier of this Node as it relates to Edges in the Flow.
     pub node_id: String,
@@ -442,6 +442,7 @@ mod tests {
     fn test_raw_flow_from_json_valid() {
         let json = r#"
         {
+            "id": "test",
             "nodes": [
                 {
                     "node_id": "source-1",
@@ -485,6 +486,7 @@ mod tests {
     fn test_raw_flow_from_json_invalid() {
         let json = r#"
         {
+            "id": "test",
             "nodes": [
                 {
                     "node_id": "source-1",
