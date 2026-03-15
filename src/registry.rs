@@ -33,6 +33,11 @@ pub enum TaskDefInfo {
     },
 }
 
+/// A registry of TaskDefs that is used by the muetl runtime when instantiating Tasks from a Flow.
+///
+/// Note that this is **not** the same thing as a runtime registry; Registry is a storefront for
+/// advertising the kinds of Tasks that may be started; it doesn't keep any information about
+/// what is running at any given time.
 pub struct Registry {
     defs: Vec<Arc<TaskInfo>>,
 }
@@ -43,7 +48,6 @@ impl Registry {
     }
 
     pub fn add_def(&mut self, def: TaskInfo) {
-        // TODO: Validate incoming TaskInfo
         self.defs.push(Arc::new(def));
     }
 
@@ -53,9 +57,9 @@ impl Registry {
         self.add_def(T::task_info());
     }
 
-    pub fn def_for(&self, name: &String) -> Option<Arc<TaskInfo>> {
+    pub fn def_for(&self, task_id: &String) -> Option<Arc<TaskInfo>> {
         for def in &self.defs {
-            if def.task_id == *name {
+            if def.task_id == *task_id {
                 return Some(def.clone());
             }
         }

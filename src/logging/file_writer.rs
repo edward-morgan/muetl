@@ -48,7 +48,10 @@ impl FileLogWriter {
     /// Create a new file log writer that writes to the given base directory.
     ///
     /// The directory will be created if it doesn't exist.
-    pub fn new<P: AsRef<Path>>(base_path: P, registry: Arc<TaskLogRegistry>) -> std::io::Result<Self> {
+    pub fn new<P: AsRef<Path>>(
+        base_path: P,
+        registry: Arc<TaskLogRegistry>,
+    ) -> std::io::Result<Self> {
         let base_path = base_path.as_ref().to_path_buf();
         fs::create_dir_all(&base_path)?;
 
@@ -98,16 +101,20 @@ impl FileLogWriter {
 
         // Spawn task to receive logs and write to file
         let handles_clone = Arc::clone(&self.handles);
-        let abort_handle = tokio::spawn(Self::log_writer_task(task_id, rx, file_path, handles_clone))
-            .abort_handle();
+        let abort_handle =
+            tokio::spawn(Self::log_writer_task(task_id, rx, file_path, handles_clone))
+                .abort_handle();
 
         // Store handle
         {
             let mut handles = self.handles.write().unwrap();
-            handles.insert(task_id, TaskFileHandle {
-                writer,
-                _abort_handle: abort_handle,
-            });
+            handles.insert(
+                task_id,
+                TaskFileHandle {
+                    writer,
+                    _abort_handle: abort_handle,
+                },
+            );
         }
 
         Ok(())
@@ -150,10 +157,16 @@ impl FileLogWriter {
     }
 
     /// Create a sanitized filename from task name and ID.
-    fn sanitize_filename(task_name: &str, task_id: u64) -> String {
+    pub fn sanitize_filename(task_name: &str, task_id: u64) -> String {
         let sanitized: String = task_name
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '_' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         format!("{}_{}.log", sanitized, task_id)
     }

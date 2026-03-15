@@ -11,6 +11,7 @@ type ValidationResult = Result<(), Vec<String>>;
 
 #[derive(Serialize, Deserialize)]
 pub struct RawFlow {
+    pub id: String,
     pub nodes: Vec<RawNode>,
     pub edges: Vec<RawEdge>,
 }
@@ -46,6 +47,7 @@ impl Display for RawEdge {
 /// The validated version of a RawFlow, parsed from a RawFlow.
 #[derive(Debug)]
 pub struct Flow {
+    pub id: String,
     /// node_id -> Node
     pub nodes: HashMap<String, Node>,
     pub edges: Vec<Edge>,
@@ -107,6 +109,7 @@ impl Flow {
             }
         }
         Ok(Flow {
+            id: value.id,
             nodes: hm,
             edges: value.edges.iter().map(|e| Edge::from(e.clone())).collect(),
         })
@@ -333,7 +336,11 @@ mod tests {
             to: NodeRef::new(node2_name.clone(), "input-1".to_string()),
         }];
 
-        let raw_flow = RawFlow { nodes, edges };
+        let raw_flow = RawFlow {
+            id: "test".to_string(),
+            nodes,
+            edges,
+        };
         let f = Flow::parse_structure(raw_flow);
         println!("RawFlow result: {:?}", f);
         assert!(f.is_err());
@@ -360,7 +367,11 @@ mod tests {
             to: NodeRef::new(node2_name.clone(), "input-1".to_string()),
         }];
 
-        let raw_flow = RawFlow { nodes, edges };
+        let raw_flow = RawFlow {
+            id: "test".to_string(),
+            nodes,
+            edges,
+        };
         let f = Flow::parse_structure(raw_flow);
         println!("RawFlow result: {:?}", f);
         assert!(f.is_err());
@@ -387,7 +398,11 @@ mod tests {
             to: NodeRef::new("nonexistent".to_string(), "input-1".to_string()), // BAD
         }];
 
-        let raw_flow = RawFlow { nodes, edges };
+        let raw_flow = RawFlow {
+            id: "test".to_string(),
+            nodes,
+            edges,
+        };
         let f = Flow::parse_structure(raw_flow);
         println!("RawFlow result: {:?}", f);
         assert!(f.is_err());
@@ -413,7 +428,11 @@ mod tests {
             to: NodeRef::new(node2_name, "input-1".to_string()), // BAD
         }];
 
-        let raw_flow = RawFlow { nodes, edges };
+        let raw_flow = RawFlow {
+            id: "test".to_string(),
+            nodes,
+            edges,
+        };
         let f = Flow::parse_structure(raw_flow);
         println!("RawFlow result: {:?}", f);
         assert!(f.is_err());

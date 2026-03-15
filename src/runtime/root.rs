@@ -1,4 +1,8 @@
-use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
+use std::{
+    collections::HashMap,
+    ops::ControlFlow,
+    sync::{Arc, Mutex},
+};
 
 use kameo::prelude::*;
 use kameo_actors::pubsub::PubSub;
@@ -6,8 +10,9 @@ use kameo_actors::pubsub::PubSub;
 use crate::{
     flow::{Edge, Flow, Node},
     logging::FileLogWriter,
-    messages::StatusUpdate,
+    messages::{RegisterRuntimeInfo, StatusUpdate},
     registry::TaskDefInfo,
+    runtime::{monitor_actor::Monitor, task_registry::TaskRegistry},
     task_defs::TaskConfig,
     util::new_id,
 };
@@ -41,10 +46,16 @@ pub struct Root {
     file_log_writer: Option<Arc<FileLogWriter>>,
     /// Mapping from node_id to task_id for file logging subscriptions.
     node_task_mapping: HashMap<String, u64>,
+    /// A ref to the actual monitor, used to register Tasks with it
+    monitor: ActorRef<Monitor>,
 }
 
 impl Root {
-    pub fn new(flow: Flow, monitor_chan: ActorRef<PubSub<StatusUpdate>>) -> Self {
+    pub fn new(
+        flow: Flow,
+        monitor_chan: ActorRef<PubSub<StatusUpdate>>,
+        monitor: ActorRef<Monitor>,
+    ) -> Self {
         let edges = flow.edges.clone();
         Self {
             id: new_id(),
@@ -54,6 +65,7 @@ impl Root {
             actor_node_mapping: HashMap::new(),
             file_log_writer: None,
             node_task_mapping: HashMap::new(),
+            monitor,
         }
     }
 
@@ -227,6 +239,23 @@ impl Actor for Root {
                 // Generate a task ID for this node
                 let task_id = new_id();
                 args.node_task_mapping.insert(node_id.clone(), task_id);
+
+                // Before starting it, send a message to the Monitor that will register the newly-created Task
+                let info = RegisterRuntimeInfo {
+                    flow_id: args.flow.id.clone(),
+                    task_id,
+                    task_def_id: node.task_id.clone(),
+                    node_id: node.node_id.clone(),
+                };
+                match args.monitor.tell(info.clone()).await {
+                    Ok(_) => {}
+                    Err(e) => {
+                        return Err(format!(
+                            "Failed to register Task ({:?}) with the Monitor: {}",
+                            &info, e
+                        ));
+                    }
+                }
 
                 tracing::info!(node_id = node_id, task_id = task_id, "Starting node.");
 

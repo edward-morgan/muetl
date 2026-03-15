@@ -15,7 +15,7 @@ use kameo_actors::pubsub::PubSub;
 use muetl::{
     flow::{Flow, NodeRef, RawEdge, RawFlow, RawNode},
     registry::{Registry, TaskDefInfo, TaskInfo},
-    runtime::root::Root,
+    runtime::{monitor_actor::Monitor, root::Root},
     task_defs::ConfigValue,
 };
 
@@ -104,6 +104,7 @@ async fn test_basic_node_passthrough() {
     collector_config.insert("name".to_string(), ConfigValue::Str("test1".to_string()));
 
     let raw_flow = RawFlow {
+        id: "test".to_string(),
         nodes: vec![
             RawNode {
                 node_id: "source".to_string(),
@@ -135,7 +136,8 @@ async fn test_basic_node_passthrough() {
 
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
     let monitor_chan = Spawn::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
-    let root = Root::new(flow, monitor_chan);
+    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
+    let root = Root::new(flow, monitor_chan, monitor_ref);
     let root_ref: ActorRef<Root> = Spawn::spawn(root);
     root_ref.wait_for_shutdown().await;
 
@@ -176,6 +178,7 @@ async fn test_single_node_transformation() {
     collector_config.insert("name".to_string(), ConfigValue::Str("test2".to_string()));
 
     let raw_flow = RawFlow {
+        id: "test".to_string(),
         nodes: vec![
             RawNode {
                 node_id: "source".to_string(),
@@ -207,7 +210,8 @@ async fn test_single_node_transformation() {
 
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
     let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
-    let root = Root::new(flow, monitor_chan);
+    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
+    let root = Root::new(flow, monitor_chan, monitor_ref);
     let root_ref = Root::spawn(root);
     root_ref.wait_for_shutdown().await;
 
@@ -252,6 +256,7 @@ async fn test_chained_nodes() {
     collector_config.insert("name".to_string(), ConfigValue::Str("test3".to_string()));
 
     let raw_flow = RawFlow {
+        id: "test".to_string(),
         nodes: vec![
             RawNode {
                 node_id: "source".to_string(),
@@ -292,7 +297,8 @@ async fn test_chained_nodes() {
 
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
     let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
-    let root = Root::new(flow, monitor_chan);
+    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
+    let root = Root::new(flow, monitor_chan, monitor_ref);
     let root_ref = Root::spawn(root);
     root_ref.wait_for_shutdown().await;
 
@@ -343,6 +349,7 @@ async fn test_fan_out_from_node() {
     );
 
     let raw_flow = RawFlow {
+        id: "test".to_string(),
         nodes: vec![
             RawNode {
                 node_id: "source".to_string(),
@@ -383,7 +390,8 @@ async fn test_fan_out_from_node() {
 
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
     let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
-    let root = Root::new(flow, monitor_chan);
+    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
+    let root = Root::new(flow, monitor_chan, monitor_ref);
     let root_ref = Root::spawn(root);
     root_ref.wait_for_shutdown().await;
 
@@ -445,6 +453,7 @@ async fn test_fan_in_to_node() {
     collector_config.insert("name".to_string(), ConfigValue::Str("fan_in".to_string()));
 
     let raw_flow = RawFlow {
+        id: "test".to_string(),
         nodes: vec![
             RawNode {
                 node_id: "source1".to_string(),
@@ -485,7 +494,8 @@ async fn test_fan_in_to_node() {
 
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
     let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
-    let root = Root::new(flow, monitor_chan);
+    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
+    let root = Root::new(flow, monitor_chan, monitor_ref);
     let root_ref = Root::spawn(root);
     root_ref.wait_for_shutdown().await;
 
@@ -538,6 +548,7 @@ async fn test_mixed_pipeline() {
     raw_config.insert("name".to_string(), ConfigValue::Str("raw".to_string()));
 
     let raw_flow = RawFlow {
+        id: "test".to_string(),
         nodes: vec![
             RawNode {
                 node_id: "source".to_string(),
@@ -589,7 +600,8 @@ async fn test_mixed_pipeline() {
 
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
     let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
-    let root = Root::new(flow, monitor_chan);
+    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
+    let root = Root::new(flow, monitor_chan, monitor_ref);
     let root_ref = Root::spawn(root);
     root_ref.wait_for_shutdown().await;
 
