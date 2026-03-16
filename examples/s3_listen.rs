@@ -8,11 +8,7 @@
 
 use std::{collections::HashMap, env, sync::Arc};
 
-use kameo::{
-    actor::{ActorRef, Spawn},
-    Actor,
-};
-use kameo_actors::pubsub::PubSub;
+use kameo::actor::{ActorRef, Spawn};
 use muetl::{
     flow::{Flow, NodeRef, RawEdge, RawFlow, RawNode},
     logging,

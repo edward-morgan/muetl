@@ -2,7 +2,6 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use kameo::actor::{ActorRef, Spawn};
-use kameo_actors::pubsub::PubSub;
 use muetl::{
     flow::{Flow, RawFlow},
     impl_config_template, impl_sink_handler, impl_source_handler, logging,

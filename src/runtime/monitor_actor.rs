@@ -1,21 +1,10 @@
 use std::{collections::HashMap, sync::Mutex};
 
-use kameo::{
-    actor::{self, ActorRef},
-    prelude::Message,
-    Actor,
-};
-use kameo_actors::pubsub::{PubSub, Subscribe};
-use tokio::task;
+use kameo::{prelude::Message, Actor};
 
-use crate::{
-    flow,
-    messages::{
-        GetRuntimeInfo, RegisterRuntimeInfo, RetrieveStatus, RuntimeInfo, Status, StatusUpdate,
-    },
+use crate::messages::{
+    GetRuntimeInfo, RegisterRuntimeInfo, RetrieveStatus, RuntimeInfo, Status, StatusUpdate,
 };
-
-type TaskUid = String;
 
 #[derive(Actor)]
 pub struct Monitor {
@@ -102,7 +91,7 @@ impl Message<GetRuntimeInfo> for Monitor {
     async fn handle(
         &mut self,
         msg: GetRuntimeInfo,
-        ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
+        _ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.record_for_node(msg.flow_id, msg.node_id)
             .map(|r| r.into())
@@ -114,7 +103,7 @@ impl Message<RegisterRuntimeInfo> for Monitor {
     async fn handle(
         &mut self,
         msg: RegisterRuntimeInfo,
-        ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
+        _ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
     ) -> Self::Reply {
         let mut rec = self.records.lock().unwrap();
         if rec.contains_key(&msg.task_id) {

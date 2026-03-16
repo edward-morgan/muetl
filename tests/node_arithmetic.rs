@@ -7,11 +7,7 @@ mod common;
 
 use std::{any::TypeId, collections::HashMap, sync::Arc};
 
-use kameo::{
-    actor::{ActorRef, Spawn},
-    Actor,
-};
-use kameo_actors::pubsub::PubSub;
+use kameo::actor::{ActorRef, Spawn};
 use muetl::{
     flow::{Flow, NodeRef, RawEdge, RawFlow, RawNode},
     messages::GetRuntimeInfo,
@@ -86,7 +82,7 @@ fn create_test_registry() -> Registry {
 
 /// Ensures that all nodes in `flow` are tracked and have finished according to `monitor`.
 async fn all_nodes_complete(flow: &Flow, monitor: ActorRef<Monitor>) {
-    for (node_id, node) in flow.nodes.iter() {
+    for (node_id, _) in flow.nodes.iter() {
         // Retrieve the status for that node
         let req = GetRuntimeInfo {
             flow_id: flow.id.clone(),

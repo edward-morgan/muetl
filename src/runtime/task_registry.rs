@@ -49,6 +49,7 @@ impl TaskRegistry {
 
 /// Runtime information about a Task.
 #[derive(Clone)]
+#[allow(unused)]
 pub struct RuntimeTaskInfo {
     /// The ID of this Task when it was instantiated by a Root.
     ///

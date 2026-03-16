@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use kameo::{actor::ActorRef, prelude::Message, Actor};
-use kameo_actors::pubsub::{PubSub, Publish};
 use tokio::sync::mpsc;
 use tracing::Instrument;
 

@@ -531,7 +531,9 @@ pub trait ConfigTemplate {
 /// capable of processing that type of message on the given connection named
 /// conn_name.
 pub trait Input<T> {
+    #[allow(non_upper_case_globals)]
     const conn_name: &'static str;
+    #[allow(async_fn_in_trait)]
     async fn handle(&mut self, ctx: &MuetlContext, input: &T);
 }
 
@@ -539,7 +541,9 @@ pub trait Input<T> {
 /// capable of processing that type of message on the given connection named
 /// conn_name.
 pub trait SinkInput<T> {
+    #[allow(non_upper_case_globals)]
     const conn_name: &'static str;
+    #[allow(async_fn_in_trait)]
     async fn handle(&mut self, ctx: &MuetlSinkContext, input: &T);
 }
 
@@ -550,6 +554,7 @@ pub trait SinkInput<T> {
 /// each Event's conn_name and type match exactly one Output<T>
 /// impl for the TaskDef.
 pub trait Output<T> {
+    #[allow(non_upper_case_globals)]
     const conn_name: &'static str;
 }
 

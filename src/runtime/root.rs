@@ -1,18 +1,17 @@
 use std::{
     collections::HashMap,
     ops::ControlFlow,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
 use kameo::prelude::*;
-use kameo_actors::pubsub::PubSub;
 
 use crate::{
     flow::{Edge, Flow, Node},
     logging::FileLogWriter,
-    messages::{RegisterRuntimeInfo, StatusUpdate},
+    messages::RegisterRuntimeInfo,
     registry::TaskDefInfo,
-    runtime::{monitor_actor::Monitor, task_registry::TaskRegistry},
+    runtime::monitor_actor::Monitor,
     task_defs::TaskConfig,
     util::new_id,
 };
