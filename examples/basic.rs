@@ -159,13 +159,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize a Root actor with the flow
     println!("Validating raw flow...");
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
-    let monitor_chan = Spawn::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
     println!("Starting monitor...");
-    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
+    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new());
     println!("Starting root...");
 
     // Create root with file logging enabled - logs will be written to ./logs directory
-    let root = Root::new(flow, monitor_chan, monitor_ref.clone()).with_file_logging("./logs")?;
+    let root = Root::new(flow, monitor_ref.clone()).with_file_logging("./logs")?;
 
     let root_ref: ActorRef<Root> = Spawn::spawn(root);
     root_ref.wait_for_shutdown().await;

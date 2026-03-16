@@ -9,6 +9,7 @@ use tracing::Instrument;
 use crate::logging::global_registry;
 use crate::messages::SystemEvent;
 use crate::runtime::connection::{IncomingConnections, OutgoingConnections};
+use crate::runtime::monitor_actor::Monitor;
 use crate::{
     messages::{Status, StatusUpdate},
     runtime::event::InternalEvent,
@@ -23,7 +24,7 @@ pub struct OperatorActor {
     trace_id: u64,
     task_name: String,
     operator: Option<Box<dyn Operator>>,
-    monitor_chan: ActorRef<PubSub<StatusUpdate>>,
+    monitor: ActorRef<Monitor>,
     /// The mapping set by the system at runtime to tell this actor which
     /// input conn_name events with a given sender_id should go to.
     subscriptions: IncomingConnections,
@@ -37,7 +38,7 @@ impl OperatorActor {
         trace_id: u64,
         task_name: String,
         operator: Option<Box<dyn Operator>>,
-        monitor_chan: ActorRef<PubSub<StatusUpdate>>,
+        monitor: ActorRef<Monitor>,
         subscriptions: IncomingConnections,
         outgoing_connections: OutgoingConnections,
     ) -> Self {
@@ -46,7 +47,7 @@ impl OperatorActor {
             trace_id,
             task_name,
             operator,
-            monitor_chan,
+            monitor,
             subscriptions,
             outgoing_connections,
         )
@@ -57,7 +58,7 @@ impl OperatorActor {
         trace_id: u64,
         task_name: String,
         operator: Option<Box<dyn Operator>>,
-        monitor_chan: ActorRef<PubSub<StatusUpdate>>,
+        monitor: ActorRef<Monitor>,
         subscriptions: IncomingConnections,
         outgoing_connections: OutgoingConnections,
     ) -> Self {
@@ -71,7 +72,7 @@ impl OperatorActor {
             trace_id,
             task_name,
             operator,
-            monitor_chan,
+            monitor,
             subscriptions,
             active_subscriptions: incoming_sender_ids,
             outgoing_connections,
@@ -152,6 +153,13 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                     }
 
                     self.outgoing_connections.broadcast_shutdown().await;
+                    self.monitor
+                        .tell(StatusUpdate {
+                            id: self.id,
+                            status: Status::Finished,
+                        })
+                        .await
+                        .unwrap();
                     ctx.stop();
                 }
             }
@@ -215,8 +223,7 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                                     match res {
                                         Some(status) => {
                                             tracing::debug!(task_id = self.id, status = ?status, "Operator received status");
-                                            let update = StatusUpdate { status: status.clone(), id: self.id };
-                                            self.monitor_chan.tell(Publish(update)).await.unwrap();
+                                            self.monitor.tell(StatusUpdate { status: status.clone(), id: self.id }).await.unwrap();
                                         },
                                         None => {
                                             status_closed = true;
@@ -237,11 +244,11 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                             Err(e) => {
                                 tracing::error!(task_id = self.id, task_name = %self.task_name, error = %e, "Operator task panicked");
                                 // Send a failure message to the monitor
-                                self.monitor_chan
-                                    .tell(Publish(StatusUpdate {
+                                self.monitor
+                                    .tell(StatusUpdate {
                                         id: self.id,
                                         status: Status::Failed(e.to_string()),
-                                    }))
+                                    })
                                     .await
                                     .unwrap()
                             }

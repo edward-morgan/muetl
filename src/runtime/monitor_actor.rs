@@ -17,7 +17,7 @@ use crate::{
 
 type TaskUid = String;
 
-// Could the Monitor be an interface into the TaskRegistry? It seems like they're trying to do very similar things.
+#[derive(Actor)]
 pub struct Monitor {
     /// The current state of all known Tasks, referenced by their internal IDs.
     records: Mutex<HashMap<u64, MonitorRecord>>,
@@ -29,15 +29,13 @@ pub struct Monitor {
     /// state of a Task requires knowing **both** its parent Flow's `id` and its
     /// `node_id`.
     flows_to_node_ids: Mutex<HashMap<String, Vec<String>>>,
-    status_chan: ActorRef<PubSub<StatusUpdate>>,
 }
 
 impl Monitor {
-    pub fn new(status_chan: ActorRef<PubSub<StatusUpdate>>) -> Self {
+    pub fn new() -> Self {
         return Self {
             records: Mutex::new(HashMap::new()),
             flows_to_node_ids: Mutex::new(HashMap::new()),
-            status_chan,
         };
     }
 
@@ -63,18 +61,6 @@ impl Monitor {
             }
         }
         None
-    }
-}
-
-impl Actor for Monitor {
-    type Args = Self;
-    type Error = String;
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        tracing::debug!("Monitor subscribing to status channel");
-        match args.status_chan.tell(Subscribe(actor_ref.clone())).await {
-            Ok(_) => Ok(args),
-            Err(e) => Err(format!("failed to subscribe to status channel: {:?}", e)),
-        }
     }
 }
 

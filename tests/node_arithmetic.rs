@@ -166,9 +166,8 @@ async fn test_basic_node_passthrough() {
     };
 
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
-    let monitor_chan = Spawn::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
-    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
-    let root = Root::new(flow.clone(), monitor_chan, monitor_ref.clone());
+    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new());
+    let root = Root::new(flow.clone(), monitor_ref.clone());
     let root_ref: ActorRef<Root> = Spawn::spawn(root);
     root_ref.wait_for_shutdown().await;
 
@@ -241,9 +240,8 @@ async fn test_single_node_transformation() {
     };
 
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
-    let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
-    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
-    let root = Root::new(flow.clone(), monitor_chan, monitor_ref.clone());
+    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new());
+    let root = Root::new(flow.clone(), monitor_ref.clone());
     let root_ref = Root::spawn(root);
     root_ref.wait_for_shutdown().await;
 
@@ -329,9 +327,8 @@ async fn test_chained_nodes() {
     };
 
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
-    let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
-    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
-    let root = Root::new(flow.clone(), monitor_chan, monitor_ref.clone());
+    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new());
+    let root = Root::new(flow.clone(), monitor_ref.clone());
     let root_ref = Root::spawn(root);
     root_ref.wait_for_shutdown().await;
 
@@ -423,9 +420,8 @@ async fn test_fan_out_from_node() {
     };
 
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
-    let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
-    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
-    let root = Root::new(flow.clone(), monitor_chan, monitor_ref.clone());
+    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new());
+    let root = Root::new(flow.clone(), monitor_ref.clone());
     let root_ref = Root::spawn(root);
     root_ref.wait_for_shutdown().await;
 
@@ -528,9 +524,8 @@ async fn test_fan_in_to_node() {
     };
 
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
-    let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
-    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
-    let root = Root::new(flow.clone(), monitor_chan, monitor_ref.clone());
+    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new());
+    let root = Root::new(flow.clone(), monitor_ref.clone());
     let root_ref = Root::spawn(root);
     root_ref.wait_for_shutdown().await;
 
@@ -635,9 +630,8 @@ async fn test_mixed_pipeline() {
     };
 
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
-    let monitor_chan = PubSub::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
-    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new(monitor_chan.clone()));
-    let root = Root::new(flow.clone(), monitor_chan, monitor_ref.clone());
+    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new());
+    let root = Root::new(flow.clone(), monitor_ref.clone());
     let root_ref = Root::spawn(root);
     root_ref.wait_for_shutdown().await;
 

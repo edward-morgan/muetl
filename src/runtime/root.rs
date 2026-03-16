@@ -34,8 +34,6 @@ pub struct Root {
     id: u64,
     /// A fully validated Flow that will be managed by this Root.
     flow: Flow,
-    /// A channel that all tasks under this Root will send status updates to
-    monitor_chan: ActorRef<PubSub<StatusUpdate>>,
     /// The parsed set of Connections that are retrieved from the Flow and passed to actors
     connections: EdgeConnections,
     /// As Actors are instantiated, this keeps track of the IDs that Kameo assigns them and maps them to node_ids in the
@@ -46,21 +44,16 @@ pub struct Root {
     file_log_writer: Option<Arc<FileLogWriter>>,
     /// Mapping from node_id to task_id for file logging subscriptions.
     node_task_mapping: HashMap<String, u64>,
-    /// A ref to the actual monitor, used to register Tasks with it
+    /// A ref to the monitor, used to register Tasks with it and for Tasks to communicate status updates to.
     monitor: ActorRef<Monitor>,
 }
 
 impl Root {
-    pub fn new(
-        flow: Flow,
-        monitor_chan: ActorRef<PubSub<StatusUpdate>>,
-        monitor: ActorRef<Monitor>,
-    ) -> Self {
+    pub fn new(flow: Flow, monitor: ActorRef<Monitor>) -> Self {
         let edges = flow.edges.clone();
         Self {
             id: new_id(),
             flow,
-            monitor_chan,
             connections: EdgeConnections::from(edges),
             actor_node_mapping: HashMap::new(),
             file_log_writer: None,
@@ -150,7 +143,7 @@ impl Root {
                         self.id,
                         node_id.clone(),
                         Some(source),
-                        self.monitor_chan.clone(),
+                        self.monitor.clone(),
                         self.connections.outgoing_connections_from(&node_id),
                     );
                     let r = SourceActor::spawn_link(&actor_ref, r).await;
@@ -168,7 +161,7 @@ impl Root {
                         self.id,
                         node_id.clone(),
                         Some(sink),
-                        self.monitor_chan.clone(),
+                        self.monitor.clone(),
                         self.connections.incoming_connections_to(node_id),
                     );
                     let r = SinkActor::spawn_link(&actor_ref, r).await;
@@ -187,7 +180,7 @@ impl Root {
                         self.id,
                         node_id.clone(),
                         Some(operator),
-                        self.monitor_chan.clone(),
+                        self.monitor.clone(),
                         self.connections.incoming_connections_to(node_id),
                         self.connections.outgoing_connections_from(node_id),
                     );
