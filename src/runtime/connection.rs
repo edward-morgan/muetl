@@ -26,10 +26,10 @@ type ChannelImpl = Arc<ActorRef<PubSub<EventMessage>>>;
  * 1. The Task that produced the Event
  * 2. The output connection that produced the Event
  *
- * At runtime, sending Tasks (Daemons, Sources, and Nodes) should receive:
+ * At runtime, sending Tasks (Sources and Operators) should receive:
  * 1. A list of PubSub channels to produce, along with their negotiated types.
  * 2. The mapping of output conn_names to sender_ids that are used to construct InternalEvents.
- * Likewise, receiving Tasks (Nodes and Sinks) should receive:
+ * Likewise, receiving Tasks (Operators and Sinks) should receive:
  * 1. A list of PubSub channels to subscribe to, along with their negotiated types.
  * 2. The mapping of sender_ids to input conn_names that are used to route incoming InternalEvents.
  */
@@ -170,7 +170,7 @@ impl OutgoingConnections {
         if let Some(outgoing_conn) = self.conns.get(&ev.conn_name) {
             match outgoing_conn.chan_type.validate_types(vec![&ev]) {
                 Ok(()) => {
-                    outgoing_conn.publish(ev).await;
+                    outgoing_conn.publish(ev).await?;
                     Ok(())
                 }
                 Err(e) => Err(e),
@@ -210,16 +210,22 @@ impl OutgoingConnection {
     }
 
     // TODO: return a result type
-    pub async fn publish(&self, ev: Arc<Event>) {
-        self.chan_ref
+    pub async fn publish(&self, ev: Arc<Event>) -> Result<(), String> {
+        match self
+            .chan_ref
             .tell(Publish(Arc::new(InternalEvent {
                 sender_id: self.sender_id,
                 event: Payload::Data(ev.clone()),
             })))
             .await
-            .unwrap();
+        {
+            Ok(()) => Ok(()),
+            Err(e) => Err(format!("Failed to publish: {:?}", e)),
+        }
     }
 
+    /// Shut down this connection from the perspective of the sender, which involves
+    /// sending a Payload::Stopped event to all subscribers.
     pub async fn shutdown(&self) {
         self.chan_ref
             .tell(Publish(Arc::new(InternalEvent {
