@@ -5,7 +5,6 @@ pub mod operator_actor;
 pub mod root;
 pub mod sink_actor;
 pub mod source_actor;
-pub mod task_registry;
 
 use std::{any::TypeId, collections::HashMap, sync::Arc};
 
