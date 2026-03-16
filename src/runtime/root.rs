@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    ops::ControlFlow,
-    sync::Arc,
-};
+use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
 
 use kameo::prelude::*;
 
@@ -11,7 +7,7 @@ use crate::{
     logging::FileLogWriter,
     messages::RegisterRuntimeInfo,
     registry::TaskDefInfo,
-    runtime::monitor_actor::Monitor,
+    runtime::{error::RuntimeError, monitor_actor::Monitor},
     task_defs::TaskConfig,
     util::new_id,
 };
@@ -111,12 +107,12 @@ impl Root {
 
     /// Validate and resolve configuration for a node against its template.
     /// If the node has no config template, passes through the raw config values.
-    fn resolve_config(&self, node: &Node) -> Result<TaskConfig, String> {
+    fn resolve_config(&self, node: &Node) -> Result<TaskConfig, RuntimeError> {
         let task_info = node.info.as_ref().unwrap();
         match &task_info.config_tpl {
             Some(tpl) => tpl
                 .validate(node.configuration.clone())
-                .map_err(|errors| errors.join("; ")),
+                .map_err(|errors| RuntimeError::ConfigResolutionError(errors)),
             None => Ok(TaskConfig::new(node.configuration.clone())),
         }
     }
@@ -128,7 +124,7 @@ impl Root {
         node_id: &String,
         node: &Node,
         task_id: u64,
-    ) -> Result<ActorId, String> {
+    ) -> Result<ActorId, RuntimeError> {
         let config = self.resolve_config(node)?;
 
         let build_result = match &node.info.as_ref().unwrap().info {
@@ -189,26 +185,34 @@ impl Root {
                 Err(e) => Err(e),
             },
         };
-        if build_result.is_ok() {
-            // Subscribe this task to file logging if enabled
-            if let Some(ref writer) = self.file_log_writer {
-                if let Err(e) = writer.subscribe_task(task_id, node_id) {
-                    tracing::warn!(
-                        node_id = %node_id,
-                        task_id = task_id,
-                        error = %e,
-                        "Failed to subscribe task to file logging"
-                    );
+
+        match build_result {
+            Ok(actor_id) => {
+                // Subscribe this task to file logging if enabled
+                if let Some(ref writer) = self.file_log_writer {
+                    if let Err(e) = writer.subscribe_task(task_id, node_id) {
+                        tracing::warn!(
+                            node_id = %node_id,
+                            task_id = task_id,
+                            error = %e,
+                            "Failed to subscribe task to file logging"
+                        );
+                    }
                 }
+                Ok(actor_id)
             }
+            Err(e) => Err(RuntimeError::FailedToBuildTaskError {
+                node_id: node_id.clone(),
+                flow_id: self.flow.id.clone(),
+                msg: e,
+            }),
         }
-        build_result
     }
 }
 
 impl Actor for Root {
     type Args = Self;
-    type Error = String;
+    type Error = RuntimeError;
 
     /// On startup, the root should instantiate supervised actors for each of the Nodes in the validated Flow it
     /// receives when constructed.
@@ -243,10 +247,11 @@ impl Actor for Root {
                 match args.monitor.tell(info.clone()).await {
                     Ok(_) => {}
                     Err(e) => {
-                        return Err(format!(
-                            "Failed to register Task ({:?}) with the Monitor: {}",
-                            &info, e
-                        ));
+                        // return Err(format!(
+                        //     "Failed to register Task ({:?}) with the Monitor: {}",
+                        //     &info, e
+                        // ));
+                        return Err(RuntimeError::MonitorRegistrationError(info.clone(), e));
                     }
                 }
 
@@ -298,10 +303,7 @@ impl Actor for Root {
                         Ok(ControlFlow::Continue(()))
                     }
                 }
-                None => Err(format!(
-                    "supervised actor with id {} stopped but is not in root node mapping",
-                    id
-                )),
+                None => Err(RuntimeError::UnknownSupervisedActorStoppedError(id)),
             },
             ActorStopReason::Killed => match self.actor_node_mapping.get(&id) {
                 Some(node_id) => {
@@ -331,16 +333,10 @@ impl Actor for Root {
                             Err(e) => Err(e),
                         }
                     } else {
-                        Err(format!(
-                            "supervised actor with id {} stopped but is not in root node mapping",
-                            id
-                        ))
+                        Err(RuntimeError::UnknownSupervisedActorStoppedError(id))
                     }
                 }
-                None => Err(format!(
-                    "supervised actor with id {} stopped but is not in root node mapping",
-                    id
-                )),
+                None => Err(RuntimeError::UnknownSupervisedActorStoppedError(id)),
             },
             ActorStopReason::LinkDied { id, reason } => {
                 tracing::warn!(root_id = self.id, actor_id = %id, reason = %reason, "Link with actor died; actor is no longer supervised");
@@ -374,16 +370,10 @@ impl Actor for Root {
                             Err(e) => Err(e),
                         }
                     } else {
-                        Err(format!(
-                            "supervised actor with id {} stopped but is not in root node mapping",
-                            id
-                        ))
+                        Err(RuntimeError::UnknownSupervisedActorStoppedError(id))
                     }
                 }
-                None => Err(format!(
-                    "supervised actor with id {} stopped but is not in root node mapping",
-                    id
-                )),
+                None => Err(RuntimeError::UnknownSupervisedActorStoppedError(id)),
             },
         }
     }

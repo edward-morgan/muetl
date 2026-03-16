@@ -27,6 +27,9 @@ pub struct OperatorActor {
     /// The mapping set by the system at runtime to tell this actor which
     /// input conn_name events with a given sender_id should go to.
     subscriptions: IncomingConnections,
+    /// The subset of sender IDs in `subscriptions` that are currently
+    /// active, i.e. those that haven't published the Payload::Stopped
+    /// event to signal that they are shutting down.
     active_subscriptions: HashSet<u64>,
     /// A mapping of output conn_names to internal sender IDs.
     outgoing_connections: OutgoingConnections,

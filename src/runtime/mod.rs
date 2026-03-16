@@ -1,4 +1,5 @@
 pub mod connection;
+pub mod error;
 pub mod event;
 pub mod monitor_actor;
 pub mod operator_actor;
@@ -9,6 +10,7 @@ pub mod source_actor;
 use std::{any::TypeId, collections::HashMap, sync::Arc};
 
 use crate::messages::event::Event;
+use crate::runtime::error::RuntimeError;
 use crate::runtime::event::InternalEvent;
 
 /// The Message type that internal actors pass around.
@@ -25,7 +27,7 @@ impl NegotiatedType {
     /// 1. If a singleton type, all events must be of that type.
     /// 2. If an AllOf type, then the list of events must contain exactly one
     /// event for each type specified.
-    pub fn validate_types(&self, events: Vec<&Event>) -> Result<(), String> {
+    pub fn validate_types(&self, events: Vec<&Event>) -> Result<(), RuntimeError> {
         match self {
             Self::Singleton(tpe) => {
                 let illegal_events: Vec<String> = events
@@ -44,26 +46,28 @@ impl NegotiatedType {
                     })
                     .collect();
                 if illegal_events.len() > 0 {
-                    Err(format!(
-                        "all events must match single type {:?}, found illegal events {:?}",
-                        tpe, illegal_events,
-                    ))
+                    Err(RuntimeError::TypeMismatch {
+                        event_type: tpe.clone(),
+                        illegal_events,
+                    })
                 } else {
                     Ok(())
                 }
             }
             Self::AllOf(types) => {
                 if types.len() != events.len() {
-                    return Err(format!(
-                        "number of events ({}) does not match the list of required types ({})",
-                        events.len(),
-                        types.len()
-                    ));
+                    return Err(RuntimeError::AllOfTypeMismatch {
+                        num_events: events.len(),
+                        num_types: types.len(),
+                    });
                 }
                 let mut present = HashMap::new();
                 for ev in events {
                     if present.contains_key(&(&*ev.get_data()).type_id()) {
-                        return Err(format!("duplicate event for type {:?}; must have a single event for each of {:?}", (&*ev.get_data()).type_id(), types));
+                        return Err(RuntimeError::DuplicateTypeError {
+                            event_type_id: (&*ev.get_data()).type_id(),
+                            possible_type_ids: types.clone(),
+                        });
                     } else {
                         present.insert((&*ev.get_data()).type_id(), ());
                     }

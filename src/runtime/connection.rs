@@ -5,6 +5,7 @@ use std::{collections::HashMap, sync::Arc};
 use kameo_actors::pubsub::{PubSub, Publish, Subscribe};
 
 use crate::messages::event::Event;
+use crate::runtime::error::RuntimeError;
 use crate::{
     runtime::{event::InternalEvent, EventMessage, NegotiatedType},
     util::new_id,
@@ -85,14 +86,11 @@ impl From<&Vec<&Connection>> for IncomingConnections {
 }
 
 impl IncomingConnections {
-    pub fn conn_name_for(&self, ie: Arc<InternalEvent>) -> Result<String, String> {
+    pub fn conn_name_for(&self, ie: Arc<InternalEvent>) -> Result<String, RuntimeError> {
         if let Some(ic) = self.conns.get(&ie.sender_id) {
             Ok(ic.receiver_conn_name.clone())
         } else {
-            Err(format!(
-                "cannot find input conn_name for sender_id {}",
-                ie.sender_id
-            ))
+            Err(RuntimeError::UnknownIncomingConnection { id: ie.sender_id })
         }
     }
 
@@ -162,24 +160,19 @@ impl OutgoingConnections {
     /// 3. If that passes, create a new `InternalEvent` using the `sender_id` configured for the `OutgoingConnection` and publish it to the channel.
     ///
     /// If an error occurs in any of those steps, return it as a String..
-    pub async fn publish_to(&self, ev: Arc<Event>) -> Result<(), String> {
+    pub async fn publish_to(&self, ev: Arc<Event>) -> Result<(), RuntimeError> {
         // We're going to get a conn_name in the event.
         // That needs to be mapped to a sender_id in the outgoing connection map
         // Then, an InternalEvent needs to be published to the right outgoing connection's
         // sender ref.
         if let Some(outgoing_conn) = self.conns.get(&ev.conn_name) {
-            match outgoing_conn.chan_type.validate_types(vec![&ev]) {
-                Ok(()) => {
-                    outgoing_conn.publish(ev).await?;
-                    Ok(())
-                }
-                Err(e) => Err(e),
-            }
+            outgoing_conn.chan_type.validate_types(vec![&ev])?;
+            outgoing_conn.publish(ev).await?;
+            Ok(())
         } else {
-            Err(format!(
-                "no outgoing connection exists for conn_name {}",
-                ev.conn_name
-            ))
+            Err(RuntimeError::UnknownOutgoingConnection {
+                conn_name: ev.conn_name.clone(),
+            })
         }
     }
 
@@ -210,7 +203,7 @@ impl OutgoingConnection {
     }
 
     // TODO: return a result type
-    pub async fn publish(&self, ev: Arc<Event>) -> Result<(), String> {
+    pub async fn publish(&self, ev: Arc<Event>) -> Result<(), RuntimeError> {
         match self
             .chan_ref
             .tell(Publish(Arc::new(InternalEvent {
@@ -220,7 +213,7 @@ impl OutgoingConnection {
             .await
         {
             Ok(()) => Ok(()),
-            Err(e) => Err(format!("Failed to publish: {:?}", e)),
+            Err(e) => Err(RuntimeError::PublishError(e.to_string())),
         }
     }
 
