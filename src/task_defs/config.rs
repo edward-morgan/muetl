@@ -3,6 +3,7 @@ use std::{
     fmt::Debug,
 };
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 /// Generates a configuration template for a TaskDef.
 ///
@@ -20,6 +21,7 @@ use serde::{Deserialize, Serialize};
 /// - `Num` - Number (i64)
 /// - `Str` - String
 /// - `Bool` - Boolean
+/// - `UtcDateTime` - UTC DateTime (RFC3339 string like "2024-01-01T00:00:00Z")
 /// - `Arr[Type]` - Array of Type (e.g., `Arr[Str]` for array of strings)
 /// - `Enum["a", "b", ...]` - One of the listed string values
 /// - `Enum[Type: val, val, ...]` - Typed enum (e.g., `Enum[Num: 1, 2, 3]`)
@@ -140,6 +142,15 @@ macro_rules! impl_config_template {
         impl_config_template!(@parse_fields $vec; $($rest)*);
     };
 
+    // Parse UtcDateTime field with default value
+    (@parse_fields $vec:ident; $field:ident: UtcDateTime = $default:expr, $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::datetime_with_default(
+            stringify!($field),
+            $crate::task_defs::ConfigValue::Str($default.to_string())
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
     // Parse field with default value
     (@parse_fields $vec:ident; $field:ident: $ftype:ident = $default:expr, $($rest:tt)*) => {
         $vec.push($crate::task_defs::ConfigField::with_default(
@@ -165,6 +176,14 @@ macro_rules! impl_config_template {
             impl_config_template!(@type $ftype)
         ));
         impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
+    // Parse UtcDateTime field with default value (last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: UtcDateTime = $default:expr) => {
+        $vec.push($crate::task_defs::ConfigField::datetime_with_default(
+            stringify!($field),
+            $crate::task_defs::ConfigValue::Str($default.to_string())
+        ));
     };
 
     // Parse field with default value (last field, no comma)
@@ -272,6 +291,7 @@ macro_rules! impl_config_template {
     (@type Num) => { $crate::task_defs::ConfigType::Num };
     (@type Str) => { $crate::task_defs::ConfigType::Str };
     (@type Bool) => { $crate::task_defs::ConfigType::Bool };
+    (@type UtcDateTime) => { $crate::task_defs::ConfigType::UtcDateTime };
 
     (@value Num, $val:expr) => {
         $crate::task_defs::ConfigValue::Num($val)
@@ -281,6 +301,9 @@ macro_rules! impl_config_template {
     };
     (@value Bool, $val:expr) => {
         $crate::task_defs::ConfigValue::Bool($val)
+    };
+    (@value UtcDateTime, $val:expr) => {
+        $crate::task_defs::ConfigValue::Str($val.to_string())
     };
 
     // Helper rules to convert array values
@@ -297,6 +320,11 @@ macro_rules! impl_config_template {
     (@array_value Bool, $val:expr) => {
         $crate::task_defs::ConfigValue::Arr(
             $val.into_iter().map(|v| $crate::task_defs::ConfigValue::Bool(v)).collect()
+        )
+    };
+    (@array_value UtcDateTime, $val:expr) => {
+        $crate::task_defs::ConfigValue::Arr(
+            $val.into_iter().map(|v| $crate::task_defs::ConfigValue::Str(v.to_string())).collect()
         )
     };
 }
@@ -323,16 +351,36 @@ impl TaskConfigTpl {
         for field in &self.fields {
             match raw.get(&field.name) {
                 Some(value) => {
+                    // Special handling for UtcDateTime - convert from string if needed
+                    let converted_value = if matches!(field.field_type, ConfigType::UtcDateTime) {
+                        match value {
+                            ConfigValue::Str(s) => match DateTime::parse_from_rfc3339(s) {
+                                Ok(dt) => ConfigValue::UtcDateTime(dt.with_timezone(&Utc)),
+                                Err(e) => {
+                                    errors.push(format!(
+                                        "field '{}': invalid datetime format '{}': {}",
+                                        field.name, s, e
+                                    ));
+                                    value.clone()
+                                }
+                            },
+                            v @ ConfigValue::UtcDateTime(_) => v.clone(),
+                            _ => value.clone(),
+                        }
+                    } else {
+                        value.clone()
+                    };
+
                     // Type check
-                    if !field.field_type.matches(value) {
+                    if !field.field_type.matches(&converted_value) {
                         errors.push(format!(
                             "field '{}': expected {:?}, got {:?}",
                             field.name,
                             field.field_type,
-                            value.config_type()
+                            converted_value.config_type()
                         ));
                     } else {
-                        values.insert(field.name.clone(), value.clone());
+                        values.insert(field.name.clone(), converted_value);
                     }
                 }
                 None if field.required => {
@@ -341,7 +389,29 @@ impl TaskConfigTpl {
                 None => {
                     // Apply default if present
                     if let Some(default) = &field.default {
-                        values.insert(field.name.clone(), default.clone());
+                        // Convert default value if it's a UtcDateTime field
+                        let converted_default = if matches!(
+                            field.field_type,
+                            ConfigType::UtcDateTime
+                        ) {
+                            match default {
+                                ConfigValue::Str(s) => match DateTime::parse_from_rfc3339(s) {
+                                    Ok(dt) => ConfigValue::UtcDateTime(dt.with_timezone(&Utc)),
+                                    Err(e) => {
+                                        errors.push(format!(
+                                            "field '{}': invalid default datetime format '{}': {}",
+                                            field.name, s, e
+                                        ));
+                                        default.clone()
+                                    }
+                                },
+                                v @ ConfigValue::UtcDateTime(_) => v.clone(),
+                                _ => default.clone(),
+                            }
+                        } else {
+                            default.clone()
+                        };
+                        values.insert(field.name.clone(), converted_default);
                     }
                 }
             }
@@ -401,14 +471,19 @@ impl ConfigField {
         }
     }
 
-    pub fn enum_with_default(
-        name: &str,
-        choices: Vec<ConfigValue>,
-        default: ConfigValue,
-    ) -> Self {
+    pub fn enum_with_default(name: &str, choices: Vec<ConfigValue>, default: ConfigValue) -> Self {
         ConfigField {
             name: name.to_string(),
             field_type: ConfigType::Enum(choices),
+            required: false,
+            default: Some(default),
+        }
+    }
+
+    pub fn datetime_with_default(name: &str, default: ConfigValue) -> Self {
+        ConfigField {
+            name: name.to_string(),
+            field_type: ConfigType::UtcDateTime,
             required: false,
             default: Some(default),
         }
@@ -421,6 +496,7 @@ pub enum ConfigType {
     Str,
     Num,
     Bool,
+    UtcDateTime,
     Arr(Box<ConfigType>),
     Map(Box<ConfigType>),
     Any,
@@ -435,6 +511,7 @@ impl ConfigType {
             (ConfigType::Str, ConfigValue::Str(_)) => true,
             (ConfigType::Num, ConfigValue::Num(_)) => true,
             (ConfigType::Bool, ConfigValue::Bool(_)) => true,
+            (ConfigType::UtcDateTime, ConfigValue::UtcDateTime(_)) => true,
             (ConfigType::Arr(inner), ConfigValue::Arr(items)) => {
                 items.iter().all(|item| inner.matches(item))
             }
@@ -460,6 +537,7 @@ pub enum ConfigValue {
     Str(String),
     Num(i64),
     Bool(bool),
+    UtcDateTime(DateTime<Utc>),
     Arr(Vec<ConfigValue>),
     Map(HashMap<String, ConfigValue>),
 }
@@ -471,6 +549,7 @@ impl ConfigValue {
             Self::Str(_) => ConfigType::Str,
             Self::Num(_) => ConfigType::Num,
             Self::Bool(_) => ConfigType::Bool,
+            Self::UtcDateTime(_) => ConfigType::UtcDateTime,
             Self::Arr(v) => {
                 let inner = v
                     .first()
@@ -547,6 +626,13 @@ impl TaskConfig {
         }
     }
 
+    pub fn get_utc_datetime(&self, key: &str) -> Option<DateTime<Utc>> {
+        match self.values.get(key)? {
+            ConfigValue::UtcDateTime(dt) => Some(*dt),
+            _ => None,
+        }
+    }
+
     pub fn require_str(&self, key: &str) -> &str {
         self.get_str(key)
             .unwrap_or_else(|| panic!("missing or invalid config key: {}", key))
@@ -559,6 +645,11 @@ impl TaskConfig {
 
     pub fn require_bool(&self, key: &str) -> bool {
         self.get_bool(key)
+            .unwrap_or_else(|| panic!("missing or invalid config key: {}", key))
+    }
+
+    pub fn require_utc_datetime(&self, key: &str) -> DateTime<Utc> {
+        self.get_utc_datetime(key)
             .unwrap_or_else(|| panic!("missing or invalid config key: {}", key))
     }
 }
