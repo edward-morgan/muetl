@@ -121,7 +121,7 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                         let (status_tx, _status_rx) = mpsc::channel(100);
 
                         let shutdown_ctx = MuetlContext {
-                            current_subscribers: HashMap::new(),
+                            current_subscribers: self.outgoing_connections.get_connection_types(),
                             results: result_tx,
                             status: status_tx,
                             event_name: None,
@@ -173,7 +173,7 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                         let (status_tx, mut status_rx) = mpsc::channel(100);
 
                         let operator_context = MuetlContext {
-                            current_subscribers: HashMap::new(),
+                            current_subscribers: self.outgoing_connections.get_connection_types(),
                             results: result_tx,
                             status: status_tx,
                             event_name: Some(ev.name.clone()),

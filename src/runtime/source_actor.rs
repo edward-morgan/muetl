@@ -68,7 +68,7 @@ impl SourceActor {
             source,
             monitor: monitor,
             current_context: MuetlContext {
-                current_subscribers: HashMap::new(),
+                current_subscribers: outgoing_connections.get_connection_types(),
                 results: results_tx,
                 status: status_tx,
                 event_name: None,

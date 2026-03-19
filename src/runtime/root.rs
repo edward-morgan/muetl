@@ -247,10 +247,6 @@ impl Actor for Root {
                 match args.monitor.tell(info.clone()).await {
                     Ok(_) => {}
                     Err(e) => {
-                        // return Err(format!(
-                        //     "Failed to register Task ({:?}) with the Monitor: {}",
-                        //     &info, e
-                        // ));
                         return Err(RuntimeError::MonitorRegistrationError(info.clone(), e));
                     }
                 }

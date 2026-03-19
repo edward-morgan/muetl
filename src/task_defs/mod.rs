@@ -481,7 +481,7 @@ pub struct MuetlContext {
     ///
     /// Producers should use this to limit how much work they do when producing messages to
     /// outputs that support multiple types. For example, take a Source that has an output
-    /// named "output_1" with possible output types [String, i32, bool]. At runtime, two
+    /// named "output_1" with possible output types `[String, i32, bool]`. At runtime, two
     /// Sinks subscribe to the "output_1" connection:
     /// - Sink #1 requests types `[i32, bool]`.
     /// - Sink #2 requests type `[String]`.

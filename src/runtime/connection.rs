@@ -1,4 +1,5 @@
 use kameo::prelude::*;
+use std::any::TypeId;
 use std::collections::HashSet;
 use std::{collections::HashMap, sync::Arc};
 
@@ -181,6 +182,19 @@ impl OutgoingConnections {
         for (_id, conn) in &self.conns {
             conn.shutdown().await;
         }
+    }
+
+    /// Retrieve the mapping of connection names to the type ID(s) that have been negotiated
+    /// for that connection.
+    pub fn get_connection_types(&self) -> HashMap<String, Vec<TypeId>> {
+        let mut hm = HashMap::with_capacity(self.conns.len());
+        for (conn_name, outgoing_conn) in &self.conns {
+            match outgoing_conn.chan_type.as_ref() {
+                NegotiatedType::AllOf(types) => hm.insert(conn_name.clone(), types.clone()),
+                NegotiatedType::Singleton(tpe) => hm.insert(conn_name.clone(), vec![tpe.clone()]),
+            };
+        }
+        hm
     }
 }
 
