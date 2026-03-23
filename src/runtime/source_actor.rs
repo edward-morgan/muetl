@@ -2,13 +2,13 @@ use std::{collections::HashMap, sync::Arc};
 
 use kameo::prelude::*;
 use kameo::{actor::ActorRef, prelude::Message, Actor};
-use kameo_actors::pubsub::{PubSub, Publish};
 use tokio::{
     select,
     sync::mpsc::{self},
 };
 use tracing::Instrument;
 
+use crate::runtime::monitor_actor::Monitor;
 use crate::{
     logging::global_registry,
     messages::{Status, StatusUpdate},
@@ -22,7 +22,7 @@ pub struct SourceActor {
     trace_id: u64,
     task_name: String,
     source: Option<Box<dyn Source>>,
-    monitor_chan: ActorRef<PubSub<StatusUpdate>>,
+    monitor: ActorRef<Monitor>,
     current_context: MuetlContext,
     /// A mapping of output conn_names to internal sender IDs.
     outgoing_connections: OutgoingConnections,
@@ -33,7 +33,7 @@ impl SourceActor {
         trace_id: u64,
         task_name: String,
         source: Option<Box<dyn Source>>,
-        monitor_chan: ActorRef<PubSub<StatusUpdate>>,
+        monitor: ActorRef<Monitor>,
         outgoing_connections: OutgoingConnections,
     ) -> Self {
         Self::with_task_id(
@@ -41,7 +41,7 @@ impl SourceActor {
             trace_id,
             task_name,
             source,
-            monitor_chan,
+            monitor,
             outgoing_connections,
         )
     }
@@ -51,7 +51,7 @@ impl SourceActor {
         trace_id: u64,
         task_name: String,
         source: Option<Box<dyn Source>>,
-        monitor_chan: ActorRef<PubSub<StatusUpdate>>,
+        monitor: ActorRef<Monitor>,
         outgoing_connections: OutgoingConnections,
     ) -> Self {
         // Throwaway
@@ -66,9 +66,9 @@ impl SourceActor {
             trace_id,
             task_name,
             source,
-            monitor_chan,
+            monitor: monitor,
             current_context: MuetlContext {
-                current_subscribers: HashMap::new(),
+                current_subscribers: outgoing_connections.get_connection_types(),
                 results: results_tx,
                 status: status_tx,
                 event_name: None,
@@ -137,8 +137,7 @@ impl Message<()> for SourceActor {
                 res = status_rx.recv(), if !status_closed => {
                     match res {
                         Some(status) => {
-                            let update = StatusUpdate{status: status.clone(), id: self.id};
-                            self.monitor_chan.tell(Publish(update)).await.unwrap();
+                            self.monitor.tell(StatusUpdate{status: status.clone(), id: self.id}).await.unwrap();
                             if matches!(status, Status::Finished) {
                                 should_stop = true;
                             }
@@ -220,11 +219,11 @@ impl Message<()> for SourceActor {
             Err(e) => {
                 tracing::error!(task_id = self.id, task_name = %self.task_name, error = %e, "Source task panicked");
                 // Send a failure message to the monitor
-                self.monitor_chan
-                    .tell(Publish(StatusUpdate {
+                self.monitor
+                    .tell(StatusUpdate {
                         id: self.id,
                         status: Status::Failed(e.to_string()),
-                    }))
+                    })
                     .await
                     .unwrap();
                 // Stop the current task

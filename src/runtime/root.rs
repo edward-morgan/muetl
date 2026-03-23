@@ -1,13 +1,13 @@
 use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
 
 use kameo::prelude::*;
-use kameo_actors::pubsub::PubSub;
 
 use crate::{
     flow::{Edge, Flow, Node},
     logging::FileLogWriter,
-    messages::StatusUpdate,
+    messages::RegisterRuntimeInfo,
     registry::TaskDefInfo,
+    runtime::{error::RuntimeError, monitor_actor::Monitor},
     task_defs::TaskConfig,
     util::new_id,
 };
@@ -29,8 +29,6 @@ pub struct Root {
     id: u64,
     /// A fully validated Flow that will be managed by this Root.
     flow: Flow,
-    /// A channel that all tasks under this Root will send status updates to
-    monitor_chan: ActorRef<PubSub<StatusUpdate>>,
     /// The parsed set of Connections that are retrieved from the Flow and passed to actors
     connections: EdgeConnections,
     /// As Actors are instantiated, this keeps track of the IDs that Kameo assigns them and maps them to node_ids in the
@@ -41,19 +39,21 @@ pub struct Root {
     file_log_writer: Option<Arc<FileLogWriter>>,
     /// Mapping from node_id to task_id for file logging subscriptions.
     node_task_mapping: HashMap<String, u64>,
+    /// A ref to the monitor, used to register Tasks with it and for Tasks to communicate status updates to.
+    monitor: ActorRef<Monitor>,
 }
 
 impl Root {
-    pub fn new(flow: Flow, monitor_chan: ActorRef<PubSub<StatusUpdate>>) -> Self {
+    pub fn new(flow: Flow, monitor: ActorRef<Monitor>) -> Self {
         let edges = flow.edges.clone();
         Self {
             id: new_id(),
             flow,
-            monitor_chan,
             connections: EdgeConnections::from(edges),
             actor_node_mapping: HashMap::new(),
             file_log_writer: None,
             node_task_mapping: HashMap::new(),
+            monitor,
         }
     }
 
@@ -107,12 +107,12 @@ impl Root {
 
     /// Validate and resolve configuration for a node against its template.
     /// If the node has no config template, passes through the raw config values.
-    fn resolve_config(&self, node: &Node) -> Result<TaskConfig, String> {
+    fn resolve_config(&self, node: &Node) -> Result<TaskConfig, RuntimeError> {
         let task_info = node.info.as_ref().unwrap();
         match &task_info.config_tpl {
             Some(tpl) => tpl
                 .validate(node.configuration.clone())
-                .map_err(|errors| errors.join("; ")),
+                .map_err(|errors| RuntimeError::ConfigResolutionError(errors)),
             None => Ok(TaskConfig::new(node.configuration.clone())),
         }
     }
@@ -124,7 +124,7 @@ impl Root {
         node_id: &String,
         node: &Node,
         task_id: u64,
-    ) -> Result<ActorId, String> {
+    ) -> Result<ActorId, RuntimeError> {
         let config = self.resolve_config(node)?;
 
         let build_result = match &node.info.as_ref().unwrap().info {
@@ -138,7 +138,7 @@ impl Root {
                         self.id,
                         node_id.clone(),
                         Some(source),
-                        self.monitor_chan.clone(),
+                        self.monitor.clone(),
                         self.connections.outgoing_connections_from(&node_id),
                     );
                     let r = SourceActor::spawn_link(&actor_ref, r).await;
@@ -156,7 +156,7 @@ impl Root {
                         self.id,
                         node_id.clone(),
                         Some(sink),
-                        self.monitor_chan.clone(),
+                        self.monitor.clone(),
                         self.connections.incoming_connections_to(node_id),
                     );
                     let r = SinkActor::spawn_link(&actor_ref, r).await;
@@ -175,7 +175,7 @@ impl Root {
                         self.id,
                         node_id.clone(),
                         Some(operator),
-                        self.monitor_chan.clone(),
+                        self.monitor.clone(),
                         self.connections.incoming_connections_to(node_id),
                         self.connections.outgoing_connections_from(node_id),
                     );
@@ -185,26 +185,34 @@ impl Root {
                 Err(e) => Err(e),
             },
         };
-        if build_result.is_ok() {
-            // Subscribe this task to file logging if enabled
-            if let Some(ref writer) = self.file_log_writer {
-                if let Err(e) = writer.subscribe_task(task_id, node_id) {
-                    tracing::warn!(
-                        node_id = %node_id,
-                        task_id = task_id,
-                        error = %e,
-                        "Failed to subscribe task to file logging"
-                    );
+
+        match build_result {
+            Ok(actor_id) => {
+                // Subscribe this task to file logging if enabled
+                if let Some(ref writer) = self.file_log_writer {
+                    if let Err(e) = writer.subscribe_task(task_id, node_id) {
+                        tracing::warn!(
+                            node_id = %node_id,
+                            task_id = task_id,
+                            error = %e,
+                            "Failed to subscribe task to file logging"
+                        );
+                    }
                 }
+                Ok(actor_id)
             }
+            Err(e) => Err(RuntimeError::FailedToBuildTaskError {
+                node_id: node_id.clone(),
+                flow_id: self.flow.id.clone(),
+                msg: e,
+            }),
         }
-        build_result
     }
 }
 
 impl Actor for Root {
     type Args = Self;
-    type Error = String;
+    type Error = RuntimeError;
 
     /// On startup, the root should instantiate supervised actors for each of the Nodes in the validated Flow it
     /// receives when constructed.
@@ -227,6 +235,21 @@ impl Actor for Root {
                 // Generate a task ID for this node
                 let task_id = new_id();
                 args.node_task_mapping.insert(node_id.clone(), task_id);
+
+                // Before starting it, send a message to the Monitor that will register the newly-created Task
+                let info = RegisterRuntimeInfo {
+                    flow_id: args.flow.id.clone(),
+                    task_id,
+                    // Note that task_def_id in RegisterRuntimeInfo maps to the task_id in a Flow.
+                    task_def_id: node.task_id.clone(),
+                    node_id: node.node_id.clone(),
+                };
+                match args.monitor.tell(info.clone()).await {
+                    Ok(_) => {}
+                    Err(e) => {
+                        return Err(RuntimeError::MonitorRegistrationError(info.clone(), e));
+                    }
+                }
 
                 tracing::info!(node_id = node_id, task_id = task_id, "Starting node.");
 
@@ -265,6 +288,7 @@ impl Actor for Root {
         match reason {
             ActorStopReason::Normal => match self.actor_node_mapping.remove(&id) {
                 Some(_) => {
+                    // Wait for the monitor to reflect the finished status
                     if self.actor_node_mapping.is_empty() {
                         tracing::info!(
                             root_id = self.id,
@@ -275,10 +299,7 @@ impl Actor for Root {
                         Ok(ControlFlow::Continue(()))
                     }
                 }
-                None => Err(format!(
-                    "supervised actor with id {} stopped but is not in root node mapping",
-                    id
-                )),
+                None => Err(RuntimeError::UnknownSupervisedActorStoppedError(id)),
             },
             ActorStopReason::Killed => match self.actor_node_mapping.get(&id) {
                 Some(node_id) => {
@@ -308,16 +329,10 @@ impl Actor for Root {
                             Err(e) => Err(e),
                         }
                     } else {
-                        Err(format!(
-                            "supervised actor with id {} stopped but is not in root node mapping",
-                            id
-                        ))
+                        Err(RuntimeError::UnknownSupervisedActorStoppedError(id))
                     }
                 }
-                None => Err(format!(
-                    "supervised actor with id {} stopped but is not in root node mapping",
-                    id
-                )),
+                None => Err(RuntimeError::UnknownSupervisedActorStoppedError(id)),
             },
             ActorStopReason::LinkDied { id, reason } => {
                 tracing::warn!(root_id = self.id, actor_id = %id, reason = %reason, "Link with actor died; actor is no longer supervised");
@@ -351,16 +366,10 @@ impl Actor for Root {
                             Err(e) => Err(e),
                         }
                     } else {
-                        Err(format!(
-                            "supervised actor with id {} stopped but is not in root node mapping",
-                            id
-                        ))
+                        Err(RuntimeError::UnknownSupervisedActorStoppedError(id))
                     }
                 }
-                None => Err(format!(
-                    "supervised actor with id {} stopped but is not in root node mapping",
-                    id
-                )),
+                None => Err(RuntimeError::UnknownSupervisedActorStoppedError(id)),
             },
         }
     }

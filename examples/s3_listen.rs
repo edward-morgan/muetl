@@ -8,16 +8,12 @@
 
 use std::{collections::HashMap, env, sync::Arc};
 
-use kameo::{
-    actor::{ActorRef, Spawn},
-    Actor,
-};
-use kameo_actors::pubsub::PubSub;
+use kameo::actor::{ActorRef, Spawn};
 use muetl::{
     flow::{Flow, NodeRef, RawEdge, RawFlow, RawNode},
     logging,
     registry::Registry,
-    runtime::root::Root,
+    runtime::{monitor_actor::Monitor, root::Root},
     task_defs::ConfigValue,
 };
 
@@ -69,6 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create the flow: S3ListSource -> Filter -> LogSink
     let raw_flow = RawFlow {
+        id: "s3 listener".to_string(),
         nodes: vec![
             RawNode {
                 node_id: "s3_source".to_string(),
@@ -102,12 +99,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Validating flow...");
     let flow = Flow::parse_from(raw_flow, Arc::new(registry)).map_err(|errs| errs.join(", "))?;
 
-    let monitor_chan = Spawn::spawn(PubSub::new(kameo_actors::DeliveryStrategy::Guaranteed));
+    println!("Starting monitor...");
+    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new());
 
     println!("Starting S3 listener for CSV files on df-bucket...");
     println!("(Press Ctrl+C to stop)");
 
-    let root = Root::new(flow, monitor_chan);
+    let root = Root::new(flow, monitor_ref);
     let root_ref: ActorRef<Root> = Spawn::spawn(root);
     root_ref.wait_for_shutdown().await;
 

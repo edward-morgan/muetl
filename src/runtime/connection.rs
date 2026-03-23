@@ -1,10 +1,12 @@
 use kameo::prelude::*;
+use std::any::TypeId;
 use std::collections::HashSet;
 use std::{collections::HashMap, sync::Arc};
 
 use kameo_actors::pubsub::{PubSub, Publish, Subscribe};
 
 use crate::messages::event::Event;
+use crate::runtime::error::RuntimeError;
 use crate::{
     runtime::{event::InternalEvent, EventMessage, NegotiatedType},
     util::new_id,
@@ -26,10 +28,10 @@ type ChannelImpl = Arc<ActorRef<PubSub<EventMessage>>>;
  * 1. The Task that produced the Event
  * 2. The output connection that produced the Event
  *
- * At runtime, sending Tasks (Daemons, Sources, and Nodes) should receive:
+ * At runtime, sending Tasks (Sources and Operators) should receive:
  * 1. A list of PubSub channels to produce, along with their negotiated types.
  * 2. The mapping of output conn_names to sender_ids that are used to construct InternalEvents.
- * Likewise, receiving Tasks (Nodes and Sinks) should receive:
+ * Likewise, receiving Tasks (Operators and Sinks) should receive:
  * 1. A list of PubSub channels to subscribe to, along with their negotiated types.
  * 2. The mapping of sender_ids to input conn_names that are used to route incoming InternalEvents.
  */
@@ -85,14 +87,11 @@ impl From<&Vec<&Connection>> for IncomingConnections {
 }
 
 impl IncomingConnections {
-    pub fn conn_name_for(&self, ie: Arc<InternalEvent>) -> Result<String, String> {
+    pub fn conn_name_for(&self, ie: Arc<InternalEvent>) -> Result<String, RuntimeError> {
         if let Some(ic) = self.conns.get(&ie.sender_id) {
             Ok(ic.receiver_conn_name.clone())
         } else {
-            Err(format!(
-                "cannot find input conn_name for sender_id {}",
-                ie.sender_id
-            ))
+            Err(RuntimeError::UnknownIncomingConnection { id: ie.sender_id })
         }
     }
 
@@ -162,24 +161,19 @@ impl OutgoingConnections {
     /// 3. If that passes, create a new `InternalEvent` using the `sender_id` configured for the `OutgoingConnection` and publish it to the channel.
     ///
     /// If an error occurs in any of those steps, return it as a String..
-    pub async fn publish_to(&self, ev: Arc<Event>) -> Result<(), String> {
+    pub async fn publish_to(&self, ev: Arc<Event>) -> Result<(), RuntimeError> {
         // We're going to get a conn_name in the event.
         // That needs to be mapped to a sender_id in the outgoing connection map
         // Then, an InternalEvent needs to be published to the right outgoing connection's
         // sender ref.
         if let Some(outgoing_conn) = self.conns.get(&ev.conn_name) {
-            match outgoing_conn.chan_type.validate_types(vec![&ev]) {
-                Ok(()) => {
-                    outgoing_conn.publish(ev).await;
-                    Ok(())
-                }
-                Err(e) => Err(e),
-            }
+            outgoing_conn.chan_type.validate_types(vec![&ev])?;
+            outgoing_conn.publish(ev).await?;
+            Ok(())
         } else {
-            Err(format!(
-                "no outgoing connection exists for conn_name {}",
-                ev.conn_name
-            ))
+            Err(RuntimeError::UnknownOutgoingConnection {
+                conn_name: ev.conn_name.clone(),
+            })
         }
     }
 
@@ -188,6 +182,19 @@ impl OutgoingConnections {
         for (_id, conn) in &self.conns {
             conn.shutdown().await;
         }
+    }
+
+    /// Retrieve the mapping of connection names to the type ID(s) that have been negotiated
+    /// for that connection.
+    pub fn get_connection_types(&self) -> HashMap<String, Vec<TypeId>> {
+        let mut hm = HashMap::with_capacity(self.conns.len());
+        for (conn_name, outgoing_conn) in &self.conns {
+            match outgoing_conn.chan_type.as_ref() {
+                NegotiatedType::AllOf(types) => hm.insert(conn_name.clone(), types.clone()),
+                NegotiatedType::Singleton(tpe) => hm.insert(conn_name.clone(), vec![tpe.clone()]),
+            };
+        }
+        hm
     }
 }
 
@@ -210,16 +217,22 @@ impl OutgoingConnection {
     }
 
     // TODO: return a result type
-    pub async fn publish(&self, ev: Arc<Event>) {
-        self.chan_ref
+    pub async fn publish(&self, ev: Arc<Event>) -> Result<(), RuntimeError> {
+        match self
+            .chan_ref
             .tell(Publish(Arc::new(InternalEvent {
                 sender_id: self.sender_id,
                 event: Payload::Data(ev.clone()),
             })))
             .await
-            .unwrap();
+        {
+            Ok(()) => Ok(()),
+            Err(e) => Err(RuntimeError::PublishError(e.to_string())),
+        }
     }
 
+    /// Shut down this connection from the perspective of the sender, which involves
+    /// sending a Payload::Stopped event to all subscribers.
     pub async fn shutdown(&self) {
         self.chan_ref
             .tell(Publish(Arc::new(InternalEvent {

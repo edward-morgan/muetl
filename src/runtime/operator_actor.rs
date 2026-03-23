@@ -1,14 +1,14 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use kameo::{actor::ActorRef, prelude::Message, Actor};
-use kameo_actors::pubsub::{PubSub, Publish};
 use tokio::sync::mpsc;
 use tracing::Instrument;
 
 use crate::logging::global_registry;
 use crate::messages::SystemEvent;
 use crate::runtime::connection::{IncomingConnections, OutgoingConnections};
+use crate::runtime::monitor_actor::Monitor;
 use crate::{
     messages::{Status, StatusUpdate},
     runtime::event::InternalEvent,
@@ -23,10 +23,13 @@ pub struct OperatorActor {
     trace_id: u64,
     task_name: String,
     operator: Option<Box<dyn Operator>>,
-    monitor_chan: ActorRef<PubSub<StatusUpdate>>,
+    monitor: ActorRef<Monitor>,
     /// The mapping set by the system at runtime to tell this actor which
     /// input conn_name events with a given sender_id should go to.
     subscriptions: IncomingConnections,
+    /// The subset of sender IDs in `subscriptions` that are currently
+    /// active, i.e. those that haven't published the Payload::Stopped
+    /// event to signal that they are shutting down.
     active_subscriptions: HashSet<u64>,
     /// A mapping of output conn_names to internal sender IDs.
     outgoing_connections: OutgoingConnections,
@@ -37,7 +40,7 @@ impl OperatorActor {
         trace_id: u64,
         task_name: String,
         operator: Option<Box<dyn Operator>>,
-        monitor_chan: ActorRef<PubSub<StatusUpdate>>,
+        monitor: ActorRef<Monitor>,
         subscriptions: IncomingConnections,
         outgoing_connections: OutgoingConnections,
     ) -> Self {
@@ -46,7 +49,7 @@ impl OperatorActor {
             trace_id,
             task_name,
             operator,
-            monitor_chan,
+            monitor,
             subscriptions,
             outgoing_connections,
         )
@@ -57,7 +60,7 @@ impl OperatorActor {
         trace_id: u64,
         task_name: String,
         operator: Option<Box<dyn Operator>>,
-        monitor_chan: ActorRef<PubSub<StatusUpdate>>,
+        monitor: ActorRef<Monitor>,
         subscriptions: IncomingConnections,
         outgoing_connections: OutgoingConnections,
     ) -> Self {
@@ -71,7 +74,7 @@ impl OperatorActor {
             trace_id,
             task_name,
             operator,
-            monitor_chan,
+            monitor,
             subscriptions,
             active_subscriptions: incoming_sender_ids,
             outgoing_connections,
@@ -118,7 +121,7 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                         let (status_tx, _status_rx) = mpsc::channel(100);
 
                         let shutdown_ctx = MuetlContext {
-                            current_subscribers: HashMap::new(),
+                            current_subscribers: self.outgoing_connections.get_connection_types(),
                             results: result_tx,
                             status: status_tx,
                             event_name: None,
@@ -152,6 +155,13 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                     }
 
                     self.outgoing_connections.broadcast_shutdown().await;
+                    self.monitor
+                        .tell(StatusUpdate {
+                            id: self.id,
+                            status: Status::Finished,
+                        })
+                        .await
+                        .unwrap();
                     ctx.stop();
                 }
             }
@@ -163,7 +173,7 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                         let (status_tx, mut status_rx) = mpsc::channel(100);
 
                         let operator_context = MuetlContext {
-                            current_subscribers: HashMap::new(),
+                            current_subscribers: self.outgoing_connections.get_connection_types(),
                             results: result_tx,
                             status: status_tx,
                             event_name: Some(ev.name.clone()),
@@ -215,8 +225,7 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                                     match res {
                                         Some(status) => {
                                             tracing::debug!(task_id = self.id, status = ?status, "Operator received status");
-                                            let update = StatusUpdate { status: status.clone(), id: self.id };
-                                            self.monitor_chan.tell(Publish(update)).await.unwrap();
+                                            self.monitor.tell(StatusUpdate { status: status.clone(), id: self.id }).await.unwrap();
                                         },
                                         None => {
                                             status_closed = true;
@@ -237,11 +246,11 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                             Err(e) => {
                                 tracing::error!(task_id = self.id, task_name = %self.task_name, error = %e, "Operator task panicked");
                                 // Send a failure message to the monitor
-                                self.monitor_chan
-                                    .tell(Publish(StatusUpdate {
+                                self.monitor
+                                    .tell(StatusUpdate {
                                         id: self.id,
                                         status: Status::Failed(e.to_string()),
-                                    }))
+                                    })
                                     .await
                                     .unwrap()
                             }

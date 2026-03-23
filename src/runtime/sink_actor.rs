@@ -2,13 +2,13 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use kameo::{actor::ActorRef, prelude::Message, Actor};
-use kameo_actors::pubsub::{PubSub, Publish};
 use tokio::sync::mpsc;
 use tracing::Instrument;
 
 use crate::logging::global_registry;
 use crate::messages::SystemEvent;
 use crate::runtime::connection::IncomingConnections;
+use crate::runtime::monitor_actor::Monitor;
 use crate::{
     messages::{Status, StatusUpdate},
     runtime::event::InternalEvent,
@@ -23,7 +23,7 @@ pub struct SinkActor {
     trace_id: u64,
     task_name: String,
     sink: Option<Box<dyn Sink>>,
-    monitor_chan: ActorRef<PubSub<StatusUpdate>>,
+    monitor: ActorRef<Monitor>,
     /// The mapping set by the system at runtime to tell this actor which
     /// input conn_name events with a given sender_id should go to.
     subscriptions: IncomingConnections,
@@ -35,17 +35,10 @@ impl SinkActor {
         trace_id: u64,
         task_name: String,
         sink: Option<Box<dyn Sink>>,
-        monitor_chan: ActorRef<PubSub<StatusUpdate>>,
+        monitor: ActorRef<Monitor>,
         subscriptions: IncomingConnections,
     ) -> Self {
-        Self::with_task_id(
-            new_id(),
-            trace_id,
-            task_name,
-            sink,
-            monitor_chan,
-            subscriptions,
-        )
+        Self::with_task_id(new_id(), trace_id, task_name, sink, monitor, subscriptions)
     }
 
     pub fn with_task_id(
@@ -53,7 +46,7 @@ impl SinkActor {
         trace_id: u64,
         task_name: String,
         sink: Option<Box<dyn Sink>>,
-        monitor_chan: ActorRef<PubSub<StatusUpdate>>,
+        monitor: ActorRef<Monitor>,
         subscriptions: IncomingConnections,
     ) -> Self {
         let incoming_sender_ids = subscriptions.incoming_sender_ids();
@@ -66,7 +59,7 @@ impl SinkActor {
             trace_id,
             task_name,
             sink,
-            monitor_chan,
+            monitor,
             subscriptions,
             active_subscriptions: incoming_sender_ids,
         }
@@ -123,13 +116,19 @@ impl Message<Arc<InternalEvent>> for SinkActor {
                             task_name = %self.task_name,
                         );
 
-                        sink.prepare_shutdown(&shutdown_ctx)
-                            .instrument(span)
-                            .await;
+                        sink.prepare_shutdown(&shutdown_ctx).instrument(span).await;
 
                         self.sink = Some(sink);
                     }
 
+                    // Tell the monitor that we're finished
+                    self.monitor
+                        .tell(StatusUpdate {
+                            id: self.id,
+                            status: Status::Finished,
+                        })
+                        .await
+                        .unwrap();
                     ctx.stop();
                 }
             }
@@ -169,8 +168,7 @@ impl Message<Arc<InternalEvent>> for SinkActor {
                                 res = status_rx.recv() => {
                                     if let Some(status) = res {
                                         tracing::debug!(task_id = self.id, status = ?status, "Sink received status");
-                                        let update = StatusUpdate{status: status, id: self.id};
-                                        self.monitor_chan.tell(Publish(update)).await.unwrap();
+                                        self.monitor.tell(StatusUpdate{status: status, id: self.id}).await.unwrap();
                                     } else {
                                         break;
                                     }
@@ -185,11 +183,11 @@ impl Message<Arc<InternalEvent>> for SinkActor {
                             Err(e) => {
                                 tracing::error!(task_id = self.id, task_name = %self.task_name, error = %e, "Sink task panicked");
                                 // Send a failure message to the monitor
-                                self.monitor_chan
-                                    .tell(Publish(StatusUpdate {
+                                self.monitor
+                                    .tell(StatusUpdate {
                                         id: self.id,
                                         status: Status::Failed(e.to_string()),
-                                    }))
+                                    })
                                     .await
                                     .unwrap()
                             }
