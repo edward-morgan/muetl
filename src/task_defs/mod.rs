@@ -506,8 +506,8 @@ pub struct MuetlContext {
     /// The name of the current event being processed (if any).
     pub event_name: Option<String>,
     /// Headers from the current event being processed (if any).
-    /// In the case of a Source, event_headers will be None, because it has no event to get them from.
-    pub event_headers: Option<HashMap<String, String>>,
+    /// In the case of a Source, event_headers will always be empty.
+    pub event_headers: HashMap<String, String>,
 }
 
 /// A MuetlSinkContext contains the context a Sink should use when running. It's different from a `MuetlContext` in that it has

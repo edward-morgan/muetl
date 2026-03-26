@@ -175,12 +175,11 @@ impl Operator for JavaScript {
 
         match self.execute(&input) {
             Ok(output) => {
-                let headers = ctx.event_headers.clone().unwrap_or_default();
                 ctx.results
-                    .send(Event::new(
+                    .send(Event::with_headers_from(
+                        ctx,
                         ctx.event_name.clone().unwrap_or_default(),
                         "output".to_string(),
-                        headers,
                         Arc::new(output),
                     ))
                     .await
