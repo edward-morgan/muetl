@@ -161,13 +161,12 @@ impl Operator for Filter {
             return;
         }
 
-        let headers = ctx.event_headers.as_ref().cloned().unwrap_or_default();
-        if self.matches(&headers) {
+        if self.matches(&ctx.event_headers) {
             ctx.results
-                .send(Event::new(
+                .send(Event::with_headers_from(
+                    ctx,
                     ctx.event_name.clone().unwrap_or_default(),
                     "output".to_string(),
-                    headers,
                     ev.get_data(),
                 ))
                 .await

@@ -123,7 +123,7 @@ impl Operator for Batch {
         // Start timing if this is the first event in the batch
         if self.batch_start.is_none() {
             self.batch_start = Some(Instant::now());
-            self.first_headers = ctx.event_headers.clone();
+            self.first_headers = Some(ctx.event_headers.clone());
         }
 
         self.buffer.push(ev.get_data());

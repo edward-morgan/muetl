@@ -68,8 +68,7 @@ impl Operator for Dedup {
             return;
         }
 
-        let headers = ctx.event_headers.as_ref().cloned().unwrap_or_default();
-        let current_value = headers.get(&self.dedup_key).cloned();
+        let current_value = ctx.event_headers.get(&self.dedup_key).cloned();
 
         let should_emit = match (&self.last_value, &current_value) {
             // No dedup key in event - always emit
@@ -83,10 +82,10 @@ impl Operator for Dedup {
         if should_emit {
             self.last_value = current_value;
             ctx.results
-                .send(Event::new(
+                .send(Event::with_headers_from(
+                    ctx,
                     ctx.event_name.clone().unwrap_or_default(),
                     "output".to_string(),
-                    headers,
                     ev.get_data(),
                 ))
                 .await

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use kameo::{actor::ActorRef, prelude::Message, Actor};
@@ -125,7 +125,7 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                             results: result_tx,
                             status: status_tx,
                             event_name: None,
-                            event_headers: None,
+                            event_headers: HashMap::new(),
                         };
 
                         let span = tracing::info_span!(
@@ -177,7 +177,7 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                             results: result_tx,
                             status: status_tx,
                             event_name: Some(ev.name.clone()),
-                            event_headers: Some(ev.headers.clone()),
+                            event_headers: ev.headers.clone(),
                         };
 
                         let mut operator = self.operator.take().unwrap();

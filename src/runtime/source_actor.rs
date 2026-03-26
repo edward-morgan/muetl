@@ -72,7 +72,7 @@ impl SourceActor {
                 results: results_tx,
                 status: status_tx,
                 event_name: None,
-                event_headers: None,
+                event_headers: HashMap::new(),
             },
             outgoing_connections,
         }
@@ -95,7 +95,7 @@ impl Message<()> for SourceActor {
             results: result_tx,
             status: status_tx,
             event_name: None,
-            event_headers: None,
+            event_headers: HashMap::new(),
         };
         let mut source = self.source.take().unwrap();
 
@@ -166,7 +166,7 @@ impl Message<()> for SourceActor {
                     results: result_tx,
                     status: status_tx,
                     event_name: None,
-                    event_headers: None,
+                    event_headers: HashMap::new(),
                 };
 
                 let span = tracing::info_span!(
