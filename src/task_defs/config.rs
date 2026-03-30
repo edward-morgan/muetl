@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 /// - `Bool` - Boolean
 /// - `UtcDateTime` - UTC DateTime (RFC3339 string like "2024-01-01T00:00:00Z")
 /// - `Arr[Type]` - Array of Type (e.g., `Arr[Str]` for array of strings)
+/// - `Map[Type]` - Map from String to Type (e.g., `Map[Str]` for map of strings)
 /// - `Enum["a", "b", ...]` - One of the listed string values
 /// - `Enum[Type: val, val, ...]` - Typed enum (e.g., `Enum[Num: 1, 2, 3]`)
 ///
@@ -36,6 +37,8 @@ use serde::{Deserialize, Serialize};
 ///     enabled: Bool,            // Optional bool without default
 ///     tags: Arr[Str] = vec!["default"], // Array of strings with default
 ///     ports: Arr[Num]!,         // Required array of numbers
+///     settings: Map[Str],       // Optional map of strings
+///     limits: Map[Num]!,        // Required map of numbers
 ///     format: Enum["json", "csv"]!,        // Required string enum
 ///     mode: Enum["fast", "slow"] = "fast", // String enum with default
 ///     level: Enum["info", "warn"],         // Optional string enum
@@ -82,6 +85,64 @@ macro_rules! impl_config_template {
         $vec.push($crate::task_defs::ConfigField::optional(
             stringify!($field),
             $crate::task_defs::ConfigType::Arr(Box::new(impl_config_template!(@type $ftype)))
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
+    // Parse map field with default value (simple type)
+    (@parse_fields $vec:ident; $field:ident: Map[$ftype:ident] = $default:expr, $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::with_default(
+            stringify!($field),
+            impl_config_template!(@map_value $ftype, $default)
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
+    // Parse map field with default value (array type)
+    (@parse_fields $vec:ident; $field:ident: Map[Arr[$inner_type:ident]] = $default:expr, $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::with_default(
+            stringify!($field),
+            impl_config_template!(@map_arr_value $inner_type, $default)
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
+    // Parse required map field (simple type)
+    (@parse_fields $vec:ident; $field:ident: Map[$ftype:ident]!, $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::required(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Map(Box::new(impl_config_template!(@type $ftype)))
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
+    // Parse required map field (array type)
+    (@parse_fields $vec:ident; $field:ident: Map[Arr[$inner_type:ident]]!, $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::required(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Map(Box::new(
+                $crate::task_defs::ConfigType::Arr(Box::new(impl_config_template!(@type $inner_type)))
+            ))
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
+    // Parse optional map field without default (simple type)
+    (@parse_fields $vec:ident; $field:ident: Map[$ftype:ident], $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::optional(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Map(Box::new(impl_config_template!(@type $ftype)))
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
+    // Parse optional map field without default (array type)
+    (@parse_fields $vec:ident; $field:ident: Map[Arr[$inner_type:ident]], $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::optional(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Map(Box::new(
+                $crate::task_defs::ConfigType::Arr(Box::new(impl_config_template!(@type $inner_type)))
+            ))
         ));
         impl_config_template!(@parse_fields $vec; $($rest)*);
     };
@@ -234,6 +295,58 @@ macro_rules! impl_config_template {
         ));
     };
 
+    // Parse map field with default value (simple type, last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: Map[$ftype:ident] = $default:expr) => {
+        $vec.push($crate::task_defs::ConfigField::with_default(
+            stringify!($field),
+            impl_config_template!(@map_value $ftype, $default)
+        ));
+    };
+
+    // Parse map field with default value (array type, last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: Map[Arr[$inner_type:ident]] = $default:expr) => {
+        $vec.push($crate::task_defs::ConfigField::with_default(
+            stringify!($field),
+            impl_config_template!(@map_arr_value $inner_type, $default)
+        ));
+    };
+
+    // Parse required map field (simple type, last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: Map[$ftype:ident]!) => {
+        $vec.push($crate::task_defs::ConfigField::required(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Map(Box::new(impl_config_template!(@type $ftype)))
+        ));
+    };
+
+    // Parse required map field (array type, last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: Map[Arr[$inner_type:ident]]!) => {
+        $vec.push($crate::task_defs::ConfigField::required(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Map(Box::new(
+                $crate::task_defs::ConfigType::Arr(Box::new(impl_config_template!(@type $inner_type)))
+            ))
+        ));
+    };
+
+    // Parse optional map field without default (simple type, last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: Map[$ftype:ident]) => {
+        $vec.push($crate::task_defs::ConfigField::optional(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Map(Box::new(impl_config_template!(@type $ftype)))
+        ));
+    };
+
+    // Parse optional map field without default (array type, last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: Map[Arr[$inner_type:ident]]) => {
+        $vec.push($crate::task_defs::ConfigField::optional(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Map(Box::new(
+                $crate::task_defs::ConfigType::Arr(Box::new(impl_config_template!(@type $inner_type)))
+            ))
+        ));
+    };
+
     // Parse typed enum field with default value (last field, no comma)
     (@parse_fields $vec:ident; $field:ident: Enum[$ftype:ident: $($variant:expr),+ $(,)?] = $default:expr) => {
         $vec.push($crate::task_defs::ConfigField::enum_with_default(
@@ -325,6 +438,70 @@ macro_rules! impl_config_template {
     (@array_value UtcDateTime, $val:expr) => {
         $crate::task_defs::ConfigValue::Arr(
             $val.into_iter().map(|v| $crate::task_defs::ConfigValue::Str(v.to_string())).collect()
+        )
+    };
+
+    // Helper rules to convert map values (simple types)
+    (@map_value Num, $val:expr) => {
+        $crate::task_defs::ConfigValue::Map(
+            $val.into_iter().map(|(k, v)| (k.to_string(), $crate::task_defs::ConfigValue::Num(v))).collect()
+        )
+    };
+    (@map_value Str, $val:expr) => {
+        $crate::task_defs::ConfigValue::Map(
+            $val.into_iter().map(|(k, v)| (k.to_string(), $crate::task_defs::ConfigValue::Str(v.to_string()))).collect()
+        )
+    };
+    (@map_value Bool, $val:expr) => {
+        $crate::task_defs::ConfigValue::Map(
+            $val.into_iter().map(|(k, v)| (k.to_string(), $crate::task_defs::ConfigValue::Bool(v))).collect()
+        )
+    };
+    (@map_value UtcDateTime, $val:expr) => {
+        $crate::task_defs::ConfigValue::Map(
+            $val.into_iter().map(|(k, v)| (k.to_string(), $crate::task_defs::ConfigValue::Str(v.to_string()))).collect()
+        )
+    };
+
+    // Helper rules to convert map values (array types)
+    (@map_arr_value Num, $val:expr) => {
+        $crate::task_defs::ConfigValue::Map(
+            $val.into_iter().map(|(k, v)| (
+                k.to_string(),
+                $crate::task_defs::ConfigValue::Arr(
+                    v.into_iter().map(|i| $crate::task_defs::ConfigValue::Num(i)).collect()
+                )
+            )).collect()
+        )
+    };
+    (@map_arr_value Str, $val:expr) => {
+        $crate::task_defs::ConfigValue::Map(
+            $val.into_iter().map(|(k, v)| (
+                k.to_string(),
+                $crate::task_defs::ConfigValue::Arr(
+                    v.into_iter().map(|i| $crate::task_defs::ConfigValue::Str(i.to_string())).collect()
+                )
+            )).collect()
+        )
+    };
+    (@map_arr_value Bool, $val:expr) => {
+        $crate::task_defs::ConfigValue::Map(
+            $val.into_iter().map(|(k, v)| (
+                k.to_string(),
+                $crate::task_defs::ConfigValue::Arr(
+                    v.into_iter().map(|i| $crate::task_defs::ConfigValue::Bool(i)).collect()
+                )
+            )).collect()
+        )
+    };
+    (@map_arr_value UtcDateTime, $val:expr) => {
+        $crate::task_defs::ConfigValue::Map(
+            $val.into_iter().map(|(k, v)| (
+                k.to_string(),
+                $crate::task_defs::ConfigValue::Arr(
+                    v.into_iter().map(|i| $crate::task_defs::ConfigValue::Str(i.to_string())).collect()
+                )
+            )).collect()
         )
     };
 }
@@ -622,6 +799,13 @@ impl TaskConfig {
     pub fn get_arr(&self, key: &str) -> Option<&Vec<ConfigValue>> {
         match self.values.get(key)? {
             ConfigValue::Arr(arr) => Some(arr),
+            _ => None,
+        }
+    }
+
+    pub fn get_map(&self, key: &str) -> Option<&HashMap<String, ConfigValue>> {
+        match self.values.get(key)? {
+            ConfigValue::Map(map) => Some(map),
             _ => None,
         }
     }
