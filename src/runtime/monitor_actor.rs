@@ -49,6 +49,12 @@ impl Monitor {
                 return Some(record.clone());
             }
         }
+        tracing::debug!(
+          flow_id = flow_id,
+          node_id = node_id,
+          records = ?self.records.lock().unwrap(),
+          "failed to find Node in Flow",
+        );
         None
     }
 }
@@ -129,7 +135,7 @@ impl Message<RegisterRuntimeInfo> for Monitor {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct MonitorRecord {
     /// The ID of the Flow that this Task is a part of.
     pub flow_id: String,

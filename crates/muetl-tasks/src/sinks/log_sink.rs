@@ -47,6 +47,7 @@ impl SelfDescribing for LogSink {
                 TypeId::of::<Vec<String>>(),
                 TypeId::of::<Vec<i64>>(),
                 TypeId::of::<Vec<u64>>(),
+                TypeId::of::<Vec<u8>>(),
                 TypeId::of::<HashMap<String, String>>(),
                 TypeId::of::<HashMap<String, JsonValue>>(),
             ],
@@ -150,6 +151,9 @@ fn format_value(data: &Arc<dyn std::any::Any + Send + Sync>) -> String {
     // Vec types
     if let Some(v) = data.downcast_ref::<Vec<String>>() {
         return format!("{:?}", v);
+    }
+    if let Some(v) = data.downcast_ref::<Vec<u8>>() {
+        return format!("raw: {:?}, string: {:?}", v, String::from_utf8(v.clone()));
     }
     if let Some(v) = data.downcast_ref::<Vec<i64>>() {
         return format!("{:?}", v);
