@@ -18,7 +18,8 @@ use serde::{Deserialize, Serialize};
 /// - `field: Type` - Optional field without default
 ///
 /// Types can be:
-/// - `Num` - Number (i64)
+/// - `Num` - Integer number (i64)
+/// - `Double` - Floating-point number (f64)
 /// - `Str` - String
 /// - `Bool` - Boolean
 /// - `UtcDateTime` - UTC DateTime (RFC3339 string like "2024-01-01T00:00:00Z")
@@ -33,12 +34,15 @@ use serde::{Deserialize, Serialize};
 /// impl_config_template!(
 ///     MyTask,
 ///     schedule: Str!,           // Required string field
-///     count: Num = 10,          // Optional num with default
+///     count: Num = 10,          // Optional integer with default
+///     threshold: Double = 0.5,  // Optional double with default
 ///     enabled: Bool,            // Optional bool without default
 ///     tags: Arr[Str] = vec!["default"], // Array of strings with default
-///     ports: Arr[Num]!,         // Required array of numbers
+///     ports: Arr[Num]!,         // Required array of integers
+///     weights: Arr[Double],     // Optional array of doubles
 ///     settings: Map[Str],       // Optional map of strings
-///     limits: Map[Num]!,        // Required map of numbers
+///     limits: Map[Num]!,        // Required map of integers
+///     scores: Map[Double],      // Optional map of doubles
 ///     format: Enum["json", "csv"]!,        // Required string enum
 ///     mode: Enum["fast", "slow"] = "fast", // String enum with default
 ///     level: Enum["info", "warn"],         // Optional string enum
@@ -402,12 +406,16 @@ macro_rules! impl_config_template {
 
     // Helper rules to convert field types to ConfigType
     (@type Num) => { $crate::task_defs::ConfigType::Num };
+    (@type Double) => { $crate::task_defs::ConfigType::Double };
     (@type Str) => { $crate::task_defs::ConfigType::Str };
     (@type Bool) => { $crate::task_defs::ConfigType::Bool };
     (@type UtcDateTime) => { $crate::task_defs::ConfigType::UtcDateTime };
 
     (@value Num, $val:expr) => {
         $crate::task_defs::ConfigValue::Num($val)
+    };
+    (@value Double, $val:expr) => {
+        $crate::task_defs::ConfigValue::Double($val)
     };
     (@value Str, $val:expr) => {
         $crate::task_defs::ConfigValue::Str($val.to_string())
@@ -423,6 +431,11 @@ macro_rules! impl_config_template {
     (@array_value Num, $val:expr) => {
         $crate::task_defs::ConfigValue::Arr(
             $val.into_iter().map(|v| $crate::task_defs::ConfigValue::Num(v)).collect()
+        )
+    };
+    (@array_value Double, $val:expr) => {
+        $crate::task_defs::ConfigValue::Arr(
+            $val.into_iter().map(|v| $crate::task_defs::ConfigValue::Double(v)).collect()
         )
     };
     (@array_value Str, $val:expr) => {
@@ -445,6 +458,11 @@ macro_rules! impl_config_template {
     (@map_value Num, $val:expr) => {
         $crate::task_defs::ConfigValue::Map(
             $val.into_iter().map(|(k, v)| (k.to_string(), $crate::task_defs::ConfigValue::Num(v))).collect()
+        )
+    };
+    (@map_value Double, $val:expr) => {
+        $crate::task_defs::ConfigValue::Map(
+            $val.into_iter().map(|(k, v)| (k.to_string(), $crate::task_defs::ConfigValue::Double(v))).collect()
         )
     };
     (@map_value Str, $val:expr) => {
@@ -470,6 +488,16 @@ macro_rules! impl_config_template {
                 k.to_string(),
                 $crate::task_defs::ConfigValue::Arr(
                     v.into_iter().map(|i| $crate::task_defs::ConfigValue::Num(i)).collect()
+                )
+            )).collect()
+        )
+    };
+    (@map_arr_value Double, $val:expr) => {
+        $crate::task_defs::ConfigValue::Map(
+            $val.into_iter().map(|(k, v)| (
+                k.to_string(),
+                $crate::task_defs::ConfigValue::Arr(
+                    v.into_iter().map(|i| $crate::task_defs::ConfigValue::Double(i)).collect()
                 )
             )).collect()
         )
@@ -670,6 +698,7 @@ impl ConfigField {
 pub enum ConfigType {
     Str,
     Num,
+    Double,
     Bool,
     UtcDateTime,
     Arr(Box<ConfigType>),
@@ -685,6 +714,7 @@ impl ConfigType {
             (ConfigType::Any, _) => true,
             (ConfigType::Str, ConfigValue::Str(_)) => true,
             (ConfigType::Num, ConfigValue::Num(_)) => true,
+            (ConfigType::Double, ConfigValue::Double(_)) => true,
             (ConfigType::Bool, ConfigValue::Bool(_)) => true,
             (ConfigType::UtcDateTime, ConfigValue::UtcDateTime(_)) => true,
             (ConfigType::Arr(inner), ConfigValue::Arr(items)) => {
@@ -711,6 +741,7 @@ impl ConfigType {
 pub enum ConfigValue {
     Str(String),
     Num(i64),
+    Double(f64),
     Bool(bool),
     UtcDateTime(DateTime<Utc>),
     Arr(Vec<ConfigValue>),
@@ -723,6 +754,7 @@ impl ConfigValue {
         match self {
             Self::Str(_) => ConfigType::Str,
             Self::Num(_) => ConfigType::Num,
+            Self::Double(_) => ConfigType::Double,
             Self::Bool(_) => ConfigType::Bool,
             Self::UtcDateTime(_) => ConfigType::UtcDateTime,
             Self::Arr(v) => {
@@ -787,6 +819,13 @@ impl TaskConfig {
         }
     }
 
+    pub fn get_f64(&self, key: &str) -> Option<f64> {
+        match self.values.get(key)? {
+            ConfigValue::Double(d) => Some(*d),
+            _ => None,
+        }
+    }
+
     pub fn get_bool(&self, key: &str) -> Option<bool> {
         match self.values.get(key)? {
             ConfigValue::Bool(b) => Some(*b),
@@ -827,6 +866,17 @@ impl TaskConfig {
         })
     }
 
+    pub fn get_f64_map(&self, key: &str) -> Option<HashMap<String, f64>> {
+        self.get_map(key).and_then(|map| {
+            map.iter()
+                .map(|(k, v)| match v {
+                    ConfigValue::Double(d) => Some((k.clone(), *d)),
+                    _ => None,
+                })
+                .collect()
+        })
+    }
+
     pub fn get_bool_map(&self, key: &str) -> Option<HashMap<String, bool>> {
         self.get_map(key).and_then(|map| {
             map.iter()
@@ -851,6 +901,17 @@ impl TaskConfig {
             arr.iter()
                 .map(|v| match v {
                     ConfigValue::Num(n) => Some(*n),
+                    _ => None,
+                })
+                .collect()
+        })
+    }
+
+    pub fn get_f64_vec(&self, key: &str) -> Option<Vec<f64>> {
+        self.get_arr(key).and_then(|arr| {
+            arr.iter()
+                .map(|v| match v {
+                    ConfigValue::Double(d) => Some(*d),
                     _ => None,
                 })
                 .collect()
@@ -905,6 +966,26 @@ impl TaskConfig {
         })
     }
 
+    pub fn get_f64_vec_map(&self, key: &str) -> Option<HashMap<String, Vec<f64>>> {
+        self.get_map(key).and_then(|map| {
+            map.iter()
+                .map(|(k, v)| match v {
+                    ConfigValue::Arr(arr) => {
+                        let vec: Option<Vec<f64>> = arr
+                            .iter()
+                            .map(|item| match item {
+                                ConfigValue::Double(d) => Some(*d),
+                                _ => None,
+                            })
+                            .collect();
+                        vec.map(|v| (k.clone(), v))
+                    }
+                    _ => None,
+                })
+                .collect()
+        })
+    }
+
     pub fn get_utc_datetime(&self, key: &str) -> Option<DateTime<Utc>> {
         match self.values.get(key)? {
             ConfigValue::UtcDateTime(dt) => Some(*dt),
@@ -919,6 +1000,11 @@ impl TaskConfig {
 
     pub fn require_i64(&self, key: &str) -> i64 {
         self.get_i64(key)
+            .unwrap_or_else(|| panic!("missing or invalid config key: {}", key))
+    }
+
+    pub fn require_f64(&self, key: &str) -> f64 {
+        self.get_f64(key)
             .unwrap_or_else(|| panic!("missing or invalid config key: {}", key))
     }
 
@@ -951,6 +1037,15 @@ mod tests {
         assert!(ConfigType::Num.matches(&ConfigValue::Num(42)));
         assert!(!ConfigType::Num.matches(&ConfigValue::Str("42".into())));
         assert!(!ConfigType::Num.matches(&ConfigValue::Bool(false)));
+    }
+
+    #[test]
+    fn matches_double() {
+        assert!(ConfigType::Double.matches(&ConfigValue::Double(3.14)));
+        assert!(ConfigType::Double.matches(&ConfigValue::Double(0.0)));
+        assert!(!ConfigType::Double.matches(&ConfigValue::Num(42)));
+        assert!(!ConfigType::Double.matches(&ConfigValue::Str("3.14".into())));
+        assert!(!ConfigType::Double.matches(&ConfigValue::Bool(false)));
     }
 
     #[test]
@@ -1160,7 +1255,11 @@ mod tests {
         let mut values = HashMap::new();
         values.insert(
             "numbers".to_string(),
-            ConfigValue::Arr(vec![ConfigValue::Num(1), ConfigValue::Num(2), ConfigValue::Num(3)]),
+            ConfigValue::Arr(vec![
+                ConfigValue::Num(1),
+                ConfigValue::Num(2),
+                ConfigValue::Num(3),
+            ]),
         );
 
         let config = TaskConfig::new(values);
@@ -1206,7 +1305,11 @@ mod tests {
         let mut map = HashMap::new();
         map.insert(
             "series1".to_string(),
-            ConfigValue::Arr(vec![ConfigValue::Num(1), ConfigValue::Num(2), ConfigValue::Num(3)]),
+            ConfigValue::Arr(vec![
+                ConfigValue::Num(1),
+                ConfigValue::Num(2),
+                ConfigValue::Num(3),
+            ]),
         );
         map.insert(
             "series2".to_string(),
@@ -1242,5 +1345,198 @@ mod tests {
         assert!(config.get_string_map("missing").is_none());
         assert!(config.get_i64_map("missing").is_none());
         assert!(config.get_string_vec("missing").is_none());
+    }
+
+    // --- Double-specific tests ---
+
+    #[test]
+    fn test_get_f64() {
+        let mut values = HashMap::new();
+        values.insert("pi".to_string(), ConfigValue::Double(3.14159));
+        values.insert("zero".to_string(), ConfigValue::Double(0.0));
+        values.insert("negative".to_string(), ConfigValue::Double(-42.5));
+
+        let config = TaskConfig::new(values);
+
+        assert_eq!(config.get_f64("pi"), Some(3.14159));
+        assert_eq!(config.get_f64("zero"), Some(0.0));
+        assert_eq!(config.get_f64("negative"), Some(-42.5));
+        assert_eq!(config.get_f64("missing"), None);
+    }
+
+    #[test]
+    fn test_get_f64_returns_none_for_wrong_type() {
+        let mut values = HashMap::new();
+        values.insert("not_double".to_string(), ConfigValue::Num(42));
+
+        let config = TaskConfig::new(values);
+        assert_eq!(config.get_f64("not_double"), None);
+    }
+
+    #[test]
+    fn test_get_f64_vec() {
+        let mut values = HashMap::new();
+        values.insert(
+            "weights".to_string(),
+            ConfigValue::Arr(vec![
+                ConfigValue::Double(0.1),
+                ConfigValue::Double(0.5),
+                ConfigValue::Double(0.9),
+            ]),
+        );
+
+        let config = TaskConfig::new(values);
+        let result = config.get_f64_vec("weights");
+
+        assert!(result.is_some());
+        let weights = result.unwrap();
+        assert_eq!(weights, vec![0.1, 0.5, 0.9]);
+    }
+
+    #[test]
+    fn test_get_f64_vec_returns_none_for_mixed_types() {
+        let mut values = HashMap::new();
+        values.insert(
+            "mixed".to_string(),
+            ConfigValue::Arr(vec![
+                ConfigValue::Double(0.1),
+                ConfigValue::Num(42), // Wrong type
+            ]),
+        );
+
+        let config = TaskConfig::new(values);
+        assert!(config.get_f64_vec("mixed").is_none());
+    }
+
+    #[test]
+    fn test_get_f64_map() {
+        let mut values = HashMap::new();
+        let mut map = HashMap::new();
+        map.insert("threshold".to_string(), ConfigValue::Double(0.75));
+        map.insert("alpha".to_string(), ConfigValue::Double(0.05));
+        values.insert("params".to_string(), ConfigValue::Map(map));
+
+        let config = TaskConfig::new(values);
+        let result = config.get_f64_map("params");
+
+        assert!(result.is_some());
+        let params = result.unwrap();
+        assert_eq!(params.get("threshold"), Some(&0.75));
+        assert_eq!(params.get("alpha"), Some(&0.05));
+    }
+
+    #[test]
+    fn test_get_f64_map_returns_none_for_wrong_value_type() {
+        let mut values = HashMap::new();
+        let mut map = HashMap::new();
+        map.insert("good".to_string(), ConfigValue::Double(1.5));
+        map.insert("bad".to_string(), ConfigValue::Str("not a double".into()));
+        values.insert("mixed_map".to_string(), ConfigValue::Map(map));
+
+        let config = TaskConfig::new(values);
+        assert!(config.get_f64_map("mixed_map").is_none());
+    }
+
+    #[test]
+    fn test_get_f64_vec_map() {
+        let mut values = HashMap::new();
+        let mut map = HashMap::new();
+        map.insert(
+            "layer1".to_string(),
+            ConfigValue::Arr(vec![
+                ConfigValue::Double(0.1),
+                ConfigValue::Double(0.2),
+                ConfigValue::Double(0.3),
+            ]),
+        );
+        map.insert(
+            "layer2".to_string(),
+            ConfigValue::Arr(vec![ConfigValue::Double(0.9)]),
+        );
+        values.insert("network".to_string(), ConfigValue::Map(map));
+
+        let config = TaskConfig::new(values);
+        let result = config.get_f64_vec_map("network");
+
+        assert!(result.is_some());
+        let network = result.unwrap();
+        assert_eq!(network.get("layer1"), Some(&vec![0.1, 0.2, 0.3]));
+        assert_eq!(network.get("layer2"), Some(&vec![0.9]));
+    }
+
+    #[test]
+    fn test_get_f64_vec_map_returns_none_for_wrong_inner_type() {
+        let mut values = HashMap::new();
+        let mut map = HashMap::new();
+        map.insert(
+            "bad_layer".to_string(),
+            ConfigValue::Arr(vec![
+                ConfigValue::Double(0.1),
+                ConfigValue::Num(42), // Wrong type
+            ]),
+        );
+        values.insert("network".to_string(), ConfigValue::Map(map));
+
+        let config = TaskConfig::new(values);
+        assert!(config.get_f64_vec_map("network").is_none());
+    }
+
+    #[test]
+    fn test_require_f64() {
+        let mut values = HashMap::new();
+        values.insert("temperature".to_string(), ConfigValue::Double(98.6));
+
+        let config = TaskConfig::new(values);
+        assert_eq!(config.require_f64("temperature"), 98.6);
+    }
+
+    #[test]
+    #[should_panic(expected = "missing or invalid config key: temperature")]
+    fn test_require_f64_panics_on_missing() {
+        let config = TaskConfig::empty();
+        config.require_f64("temperature");
+    }
+
+    #[test]
+    #[should_panic(expected = "missing or invalid config key: temperature")]
+    fn test_require_f64_panics_on_wrong_type() {
+        let mut values = HashMap::new();
+        values.insert("temperature".to_string(), ConfigValue::Str("98.6".into()));
+
+        let config = TaskConfig::new(values);
+        config.require_f64("temperature");
+    }
+
+    #[test]
+    fn test_config_type_for_double_value() {
+        let value = ConfigValue::Double(2.718);
+        assert!(matches!(value.config_type(), ConfigType::Double));
+    }
+
+    #[test]
+    fn test_arr_double_type_matches() {
+        let ty = ConfigType::Arr(Box::new(ConfigType::Double));
+        assert!(ty.matches(&ConfigValue::Arr(vec![
+            ConfigValue::Double(1.1),
+            ConfigValue::Double(2.2),
+        ])));
+        assert!(!ty.matches(&ConfigValue::Arr(vec![
+            ConfigValue::Double(1.1),
+            ConfigValue::Num(42),
+        ])));
+    }
+
+    #[test]
+    fn test_map_double_type_matches() {
+        let ty = ConfigType::Map(Box::new(ConfigType::Double));
+        let mut m = HashMap::new();
+        m.insert("a".into(), ConfigValue::Double(1.5));
+        m.insert("b".into(), ConfigValue::Double(2.5));
+        assert!(ty.matches(&ConfigValue::Map(m)));
+
+        let mut bad_m = HashMap::new();
+        bad_m.insert("a".into(), ConfigValue::Double(1.5));
+        bad_m.insert("b".into(), ConfigValue::Num(42));
+        assert!(!ty.matches(&ConfigValue::Map(bad_m)));
     }
 }
