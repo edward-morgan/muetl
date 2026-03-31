@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 /// - `Bool` - Boolean
 /// - `UtcDateTime` - UTC DateTime (RFC3339 string like "2024-01-01T00:00:00Z")
 /// - `Arr[Type]` - Array of Type (e.g., `Arr[Str]` for array of strings)
+/// - `Map[Type]` - Map from String to Type (e.g., `Map[Str]` for map of strings)
 /// - `Enum["a", "b", ...]` - One of the listed string values
 /// - `Enum[Type: val, val, ...]` - Typed enum (e.g., `Enum[Num: 1, 2, 3]`)
 ///
@@ -36,6 +37,8 @@ use serde::{Deserialize, Serialize};
 ///     enabled: Bool,            // Optional bool without default
 ///     tags: Arr[Str] = vec!["default"], // Array of strings with default
 ///     ports: Arr[Num]!,         // Required array of numbers
+///     settings: Map[Str],       // Optional map of strings
+///     limits: Map[Num]!,        // Required map of numbers
 ///     format: Enum["json", "csv"]!,        // Required string enum
 ///     mode: Enum["fast", "slow"] = "fast", // String enum with default
 ///     level: Enum["info", "warn"],         // Optional string enum
@@ -82,6 +85,64 @@ macro_rules! impl_config_template {
         $vec.push($crate::task_defs::ConfigField::optional(
             stringify!($field),
             $crate::task_defs::ConfigType::Arr(Box::new(impl_config_template!(@type $ftype)))
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
+    // Parse map field with default value (simple type)
+    (@parse_fields $vec:ident; $field:ident: Map[$ftype:ident] = $default:expr, $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::with_default(
+            stringify!($field),
+            impl_config_template!(@map_value $ftype, $default)
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
+    // Parse map field with default value (array type)
+    (@parse_fields $vec:ident; $field:ident: Map[Arr[$inner_type:ident]] = $default:expr, $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::with_default(
+            stringify!($field),
+            impl_config_template!(@map_arr_value $inner_type, $default)
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
+    // Parse required map field (simple type)
+    (@parse_fields $vec:ident; $field:ident: Map[$ftype:ident]!, $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::required(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Map(Box::new(impl_config_template!(@type $ftype)))
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
+    // Parse required map field (array type)
+    (@parse_fields $vec:ident; $field:ident: Map[Arr[$inner_type:ident]]!, $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::required(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Map(Box::new(
+                $crate::task_defs::ConfigType::Arr(Box::new(impl_config_template!(@type $inner_type)))
+            ))
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
+    // Parse optional map field without default (simple type)
+    (@parse_fields $vec:ident; $field:ident: Map[$ftype:ident], $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::optional(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Map(Box::new(impl_config_template!(@type $ftype)))
+        ));
+        impl_config_template!(@parse_fields $vec; $($rest)*);
+    };
+
+    // Parse optional map field without default (array type)
+    (@parse_fields $vec:ident; $field:ident: Map[Arr[$inner_type:ident]], $($rest:tt)*) => {
+        $vec.push($crate::task_defs::ConfigField::optional(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Map(Box::new(
+                $crate::task_defs::ConfigType::Arr(Box::new(impl_config_template!(@type $inner_type)))
+            ))
         ));
         impl_config_template!(@parse_fields $vec; $($rest)*);
     };
@@ -234,6 +295,58 @@ macro_rules! impl_config_template {
         ));
     };
 
+    // Parse map field with default value (simple type, last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: Map[$ftype:ident] = $default:expr) => {
+        $vec.push($crate::task_defs::ConfigField::with_default(
+            stringify!($field),
+            impl_config_template!(@map_value $ftype, $default)
+        ));
+    };
+
+    // Parse map field with default value (array type, last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: Map[Arr[$inner_type:ident]] = $default:expr) => {
+        $vec.push($crate::task_defs::ConfigField::with_default(
+            stringify!($field),
+            impl_config_template!(@map_arr_value $inner_type, $default)
+        ));
+    };
+
+    // Parse required map field (simple type, last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: Map[$ftype:ident]!) => {
+        $vec.push($crate::task_defs::ConfigField::required(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Map(Box::new(impl_config_template!(@type $ftype)))
+        ));
+    };
+
+    // Parse required map field (array type, last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: Map[Arr[$inner_type:ident]]!) => {
+        $vec.push($crate::task_defs::ConfigField::required(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Map(Box::new(
+                $crate::task_defs::ConfigType::Arr(Box::new(impl_config_template!(@type $inner_type)))
+            ))
+        ));
+    };
+
+    // Parse optional map field without default (simple type, last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: Map[$ftype:ident]) => {
+        $vec.push($crate::task_defs::ConfigField::optional(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Map(Box::new(impl_config_template!(@type $ftype)))
+        ));
+    };
+
+    // Parse optional map field without default (array type, last field, no comma)
+    (@parse_fields $vec:ident; $field:ident: Map[Arr[$inner_type:ident]]) => {
+        $vec.push($crate::task_defs::ConfigField::optional(
+            stringify!($field),
+            $crate::task_defs::ConfigType::Map(Box::new(
+                $crate::task_defs::ConfigType::Arr(Box::new(impl_config_template!(@type $inner_type)))
+            ))
+        ));
+    };
+
     // Parse typed enum field with default value (last field, no comma)
     (@parse_fields $vec:ident; $field:ident: Enum[$ftype:ident: $($variant:expr),+ $(,)?] = $default:expr) => {
         $vec.push($crate::task_defs::ConfigField::enum_with_default(
@@ -327,6 +440,70 @@ macro_rules! impl_config_template {
             $val.into_iter().map(|v| $crate::task_defs::ConfigValue::Str(v.to_string())).collect()
         )
     };
+
+    // Helper rules to convert map values (simple types)
+    (@map_value Num, $val:expr) => {
+        $crate::task_defs::ConfigValue::Map(
+            $val.into_iter().map(|(k, v)| (k.to_string(), $crate::task_defs::ConfigValue::Num(v))).collect()
+        )
+    };
+    (@map_value Str, $val:expr) => {
+        $crate::task_defs::ConfigValue::Map(
+            $val.into_iter().map(|(k, v)| (k.to_string(), $crate::task_defs::ConfigValue::Str(v.to_string()))).collect()
+        )
+    };
+    (@map_value Bool, $val:expr) => {
+        $crate::task_defs::ConfigValue::Map(
+            $val.into_iter().map(|(k, v)| (k.to_string(), $crate::task_defs::ConfigValue::Bool(v))).collect()
+        )
+    };
+    (@map_value UtcDateTime, $val:expr) => {
+        $crate::task_defs::ConfigValue::Map(
+            $val.into_iter().map(|(k, v)| (k.to_string(), $crate::task_defs::ConfigValue::Str(v.to_string()))).collect()
+        )
+    };
+
+    // Helper rules to convert map values (array types)
+    (@map_arr_value Num, $val:expr) => {
+        $crate::task_defs::ConfigValue::Map(
+            $val.into_iter().map(|(k, v)| (
+                k.to_string(),
+                $crate::task_defs::ConfigValue::Arr(
+                    v.into_iter().map(|i| $crate::task_defs::ConfigValue::Num(i)).collect()
+                )
+            )).collect()
+        )
+    };
+    (@map_arr_value Str, $val:expr) => {
+        $crate::task_defs::ConfigValue::Map(
+            $val.into_iter().map(|(k, v)| (
+                k.to_string(),
+                $crate::task_defs::ConfigValue::Arr(
+                    v.into_iter().map(|i| $crate::task_defs::ConfigValue::Str(i.to_string())).collect()
+                )
+            )).collect()
+        )
+    };
+    (@map_arr_value Bool, $val:expr) => {
+        $crate::task_defs::ConfigValue::Map(
+            $val.into_iter().map(|(k, v)| (
+                k.to_string(),
+                $crate::task_defs::ConfigValue::Arr(
+                    v.into_iter().map(|i| $crate::task_defs::ConfigValue::Bool(i)).collect()
+                )
+            )).collect()
+        )
+    };
+    (@map_arr_value UtcDateTime, $val:expr) => {
+        $crate::task_defs::ConfigValue::Map(
+            $val.into_iter().map(|(k, v)| (
+                k.to_string(),
+                $crate::task_defs::ConfigValue::Arr(
+                    v.into_iter().map(|i| $crate::task_defs::ConfigValue::Str(i.to_string())).collect()
+                )
+            )).collect()
+        )
+    };
 }
 
 /// A particular configuration property that a TaskDef looks for. At runtime, the template
@@ -390,27 +567,25 @@ impl TaskConfigTpl {
                     // Apply default if present
                     if let Some(default) = &field.default {
                         // Convert default value if it's a UtcDateTime field
-                        let converted_default = if matches!(
-                            field.field_type,
-                            ConfigType::UtcDateTime
-                        ) {
-                            match default {
-                                ConfigValue::Str(s) => match DateTime::parse_from_rfc3339(s) {
-                                    Ok(dt) => ConfigValue::UtcDateTime(dt.with_timezone(&Utc)),
-                                    Err(e) => {
-                                        errors.push(format!(
+                        let converted_default =
+                            if matches!(field.field_type, ConfigType::UtcDateTime) {
+                                match default {
+                                    ConfigValue::Str(s) => match DateTime::parse_from_rfc3339(s) {
+                                        Ok(dt) => ConfigValue::UtcDateTime(dt.with_timezone(&Utc)),
+                                        Err(e) => {
+                                            errors.push(format!(
                                             "field '{}': invalid default datetime format '{}': {}",
                                             field.name, s, e
                                         ));
-                                        default.clone()
-                                    }
-                                },
-                                v @ ConfigValue::UtcDateTime(_) => v.clone(),
-                                _ => default.clone(),
-                            }
-                        } else {
-                            default.clone()
-                        };
+                                            default.clone()
+                                        }
+                                    },
+                                    v @ ConfigValue::UtcDateTime(_) => v.clone(),
+                                    _ => default.clone(),
+                                }
+                            } else {
+                                default.clone()
+                            };
                         values.insert(field.name.clone(), converted_default);
                     }
                 }
@@ -626,6 +801,110 @@ impl TaskConfig {
         }
     }
 
+    pub fn get_map(&self, key: &str) -> Option<&HashMap<String, ConfigValue>> {
+        match self.values.get(key)? {
+            ConfigValue::Map(map) => Some(map),
+            _ => None,
+        }
+    }
+
+    pub fn get_string_map(&self, key: &str) -> Option<HashMap<String, String>> {
+        self.get_map(key).and_then(|map| {
+            map.iter()
+                .map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect()
+        })
+    }
+
+    pub fn get_i64_map(&self, key: &str) -> Option<HashMap<String, i64>> {
+        self.get_map(key).and_then(|map| {
+            map.iter()
+                .map(|(k, v)| match v {
+                    ConfigValue::Num(n) => Some((k.clone(), *n)),
+                    _ => None,
+                })
+                .collect()
+        })
+    }
+
+    pub fn get_bool_map(&self, key: &str) -> Option<HashMap<String, bool>> {
+        self.get_map(key).and_then(|map| {
+            map.iter()
+                .map(|(k, v)| match v {
+                    ConfigValue::Bool(b) => Some((k.clone(), *b)),
+                    _ => None,
+                })
+                .collect()
+        })
+    }
+
+    pub fn get_string_vec(&self, key: &str) -> Option<Vec<String>> {
+        self.get_arr(key).and_then(|arr| {
+            arr.iter()
+                .map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+    }
+
+    pub fn get_i64_vec(&self, key: &str) -> Option<Vec<i64>> {
+        self.get_arr(key).and_then(|arr| {
+            arr.iter()
+                .map(|v| match v {
+                    ConfigValue::Num(n) => Some(*n),
+                    _ => None,
+                })
+                .collect()
+        })
+    }
+
+    pub fn get_bool_vec(&self, key: &str) -> Option<Vec<bool>> {
+        self.get_arr(key).and_then(|arr| {
+            arr.iter()
+                .map(|v| match v {
+                    ConfigValue::Bool(b) => Some(*b),
+                    _ => None,
+                })
+                .collect()
+        })
+    }
+
+    pub fn get_string_vec_map(&self, key: &str) -> Option<HashMap<String, Vec<String>>> {
+        self.get_map(key).and_then(|map| {
+            map.iter()
+                .map(|(k, v)| match v {
+                    ConfigValue::Arr(arr) => {
+                        let vec: Option<Vec<String>> = arr
+                            .iter()
+                            .map(|item| item.as_str().map(|s| s.to_string()))
+                            .collect();
+                        vec.map(|v| (k.clone(), v))
+                    }
+                    _ => None,
+                })
+                .collect()
+        })
+    }
+
+    pub fn get_i64_vec_map(&self, key: &str) -> Option<HashMap<String, Vec<i64>>> {
+        self.get_map(key).and_then(|map| {
+            map.iter()
+                .map(|(k, v)| match v {
+                    ConfigValue::Arr(arr) => {
+                        let vec: Option<Vec<i64>> = arr
+                            .iter()
+                            .map(|item| match item {
+                                ConfigValue::Num(n) => Some(*n),
+                                _ => None,
+                            })
+                            .collect();
+                        vec.map(|v| (k.clone(), v))
+                    }
+                    _ => None,
+                })
+                .collect()
+        })
+    }
+
     pub fn get_utc_datetime(&self, key: &str) -> Option<DateTime<Utc>> {
         match self.values.get(key)? {
             ConfigValue::UtcDateTime(dt) => Some(*dt),
@@ -802,5 +1081,166 @@ mod tests {
         let ty = ConfigType::Enum(vec![]);
         assert!(!ty.matches(&ConfigValue::Str("anything".into())));
         assert!(!ty.matches(&ConfigValue::Num(0)));
+    }
+
+    // --- TaskConfig typed getters ---
+
+    #[test]
+    fn test_get_string_map() {
+        let mut values = HashMap::new();
+        let mut map = HashMap::new();
+        map.insert("key1".to_string(), ConfigValue::Str("value1".to_string()));
+        map.insert("key2".to_string(), ConfigValue::Str("value2".to_string()));
+        values.insert("headers".to_string(), ConfigValue::Map(map));
+
+        let config = TaskConfig::new(values);
+        let result = config.get_string_map("headers");
+
+        assert!(result.is_some());
+        let headers = result.unwrap();
+        assert_eq!(headers.get("key1"), Some(&"value1".to_string()));
+        assert_eq!(headers.get("key2"), Some(&"value2".to_string()));
+    }
+
+    #[test]
+    fn test_get_i64_map() {
+        let mut values = HashMap::new();
+        let mut map = HashMap::new();
+        map.insert("count".to_string(), ConfigValue::Num(42));
+        map.insert("limit".to_string(), ConfigValue::Num(100));
+        values.insert("settings".to_string(), ConfigValue::Map(map));
+
+        let config = TaskConfig::new(values);
+        let result = config.get_i64_map("settings");
+
+        assert!(result.is_some());
+        let settings = result.unwrap();
+        assert_eq!(settings.get("count"), Some(&42));
+        assert_eq!(settings.get("limit"), Some(&100));
+    }
+
+    #[test]
+    fn test_get_bool_map() {
+        let mut values = HashMap::new();
+        let mut map = HashMap::new();
+        map.insert("enabled".to_string(), ConfigValue::Bool(true));
+        map.insert("debug".to_string(), ConfigValue::Bool(false));
+        values.insert("flags".to_string(), ConfigValue::Map(map));
+
+        let config = TaskConfig::new(values);
+        let result = config.get_bool_map("flags");
+
+        assert!(result.is_some());
+        let flags = result.unwrap();
+        assert_eq!(flags.get("enabled"), Some(&true));
+        assert_eq!(flags.get("debug"), Some(&false));
+    }
+
+    #[test]
+    fn test_get_string_vec() {
+        let mut values = HashMap::new();
+        values.insert(
+            "tags".to_string(),
+            ConfigValue::Arr(vec![
+                ConfigValue::Str("tag1".to_string()),
+                ConfigValue::Str("tag2".to_string()),
+            ]),
+        );
+
+        let config = TaskConfig::new(values);
+        let result = config.get_string_vec("tags");
+
+        assert!(result.is_some());
+        let tags = result.unwrap();
+        assert_eq!(tags, vec!["tag1".to_string(), "tag2".to_string()]);
+    }
+
+    #[test]
+    fn test_get_i64_vec() {
+        let mut values = HashMap::new();
+        values.insert(
+            "numbers".to_string(),
+            ConfigValue::Arr(vec![ConfigValue::Num(1), ConfigValue::Num(2), ConfigValue::Num(3)]),
+        );
+
+        let config = TaskConfig::new(values);
+        let result = config.get_i64_vec("numbers");
+
+        assert!(result.is_some());
+        let numbers = result.unwrap();
+        assert_eq!(numbers, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_get_string_vec_map() {
+        let mut values = HashMap::new();
+        let mut map = HashMap::new();
+        map.insert(
+            "tags".to_string(),
+            ConfigValue::Arr(vec![
+                ConfigValue::Str("tag1".to_string()),
+                ConfigValue::Str("tag2".to_string()),
+            ]),
+        );
+        map.insert(
+            "labels".to_string(),
+            ConfigValue::Arr(vec![ConfigValue::Str("label1".to_string())]),
+        );
+        values.insert("metadata".to_string(), ConfigValue::Map(map));
+
+        let config = TaskConfig::new(values);
+        let result = config.get_string_vec_map("metadata");
+
+        assert!(result.is_some());
+        let metadata = result.unwrap();
+        assert_eq!(
+            metadata.get("tags"),
+            Some(&vec!["tag1".to_string(), "tag2".to_string()])
+        );
+        assert_eq!(metadata.get("labels"), Some(&vec!["label1".to_string()]));
+    }
+
+    #[test]
+    fn test_get_i64_vec_map() {
+        let mut values = HashMap::new();
+        let mut map = HashMap::new();
+        map.insert(
+            "series1".to_string(),
+            ConfigValue::Arr(vec![ConfigValue::Num(1), ConfigValue::Num(2), ConfigValue::Num(3)]),
+        );
+        map.insert(
+            "series2".to_string(),
+            ConfigValue::Arr(vec![ConfigValue::Num(4)]),
+        );
+        values.insert("data".to_string(), ConfigValue::Map(map));
+
+        let config = TaskConfig::new(values);
+        let result = config.get_i64_vec_map("data");
+
+        assert!(result.is_some());
+        let data = result.unwrap();
+        assert_eq!(data.get("series1"), Some(&vec![1, 2, 3]));
+        assert_eq!(data.get("series2"), Some(&vec![4]));
+    }
+
+    #[test]
+    fn test_typed_getters_return_none_for_wrong_type() {
+        let mut values = HashMap::new();
+        let mut map = HashMap::new();
+        map.insert("key1".to_string(), ConfigValue::Num(42)); // Wrong type - should be string
+        values.insert("headers".to_string(), ConfigValue::Map(map));
+
+        let config = TaskConfig::new(values);
+        let result = config.get_string_map("headers");
+
+        assert!(result.is_none(), "Should return None for type mismatch");
+    }
+
+    #[test]
+    fn test_typed_getters_return_none_for_missing_key() {
+        let config = TaskConfig::empty();
+        assert!(config.get_string_map("missing").is_none());
+        assert!(config.get_i64_map("missing").is_none());
+        assert!(config.get_string_vec("missing").is_none());
     }
 }
