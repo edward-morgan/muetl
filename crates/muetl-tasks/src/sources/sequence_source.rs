@@ -25,7 +25,7 @@ pub struct SequenceSource {
 }
 
 impl SequenceSource {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Source>, String> {
+    pub async fn new(config: TaskConfig) -> Result<Box<dyn Source>, String> {
         let start = config.get_i64("start").unwrap_or(0);
         let end = config.get_i64("end").unwrap_or(10);
         let step = config.get_i64("step").unwrap_or(1);

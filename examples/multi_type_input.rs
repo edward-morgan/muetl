@@ -24,7 +24,7 @@ pub struct FlexibleOperator {
 }
 
 impl FlexibleOperator {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Operator>, String> {
+    pub async fn new(config: TaskConfig) -> Result<Box<dyn Operator>, String> {
         let prefix = config
             .get_str("prefix")
             .unwrap_or("processed")

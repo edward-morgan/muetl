@@ -26,7 +26,7 @@ pub struct Dedup {
 }
 
 impl Dedup {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Operator>, String> {
+    pub async fn new(config: TaskConfig) -> Result<Box<dyn Operator>, String> {
         Ok(Box::new(Dedup {
             dedup_key: config.require_str("dedup_key").to_string(),
             last_value: None,
@@ -50,7 +50,7 @@ impl SelfDescribing for Dedup {
             info: TaskDefInfo::OperatorDef {
                 inputs,
                 outputs,
-                build_operator: Self::new,
+                build_operator: |config| Box::pin(Self::new(config)),
             },
         }
     }

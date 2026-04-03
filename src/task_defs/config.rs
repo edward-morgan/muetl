@@ -753,7 +753,7 @@ impl ConfigValue {
 }
 
 /// Resolved configuration for a TaskDef instance
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TaskConfig {
     values: HashMap<String, ConfigValue>,
 }

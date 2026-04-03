@@ -68,7 +68,7 @@ pub struct JavaScript {
 }
 
 impl JavaScript {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Operator>, String> {
+    pub async fn new(config: TaskConfig) -> Result<Box<dyn Operator>, String> {
         let script = config.require_str("script").to_string();
 
         // Validate the script by trying to evaluate it with dummy input
@@ -138,7 +138,7 @@ impl SelfDescribing for JavaScript {
             info: TaskDefInfo::OperatorDef {
                 inputs,
                 outputs,
-                build_operator: Self::new,
+                build_operator: |config| Box::pin(Self::new(config)),
             },
         }
     }

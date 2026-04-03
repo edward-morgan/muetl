@@ -35,7 +35,7 @@ pub struct Batch {
 }
 
 impl Batch {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Operator>, String> {
+    pub async fn new(config: TaskConfig) -> Result<Box<dyn Operator>, String> {
         Ok(Box::new(Batch {
             max_size: config.get_i64("max_size").unwrap_or(10) as usize,
             max_wait: Duration::from_millis(config.get_i64("max_wait_ms").unwrap_or(1000) as u64),
@@ -102,7 +102,7 @@ impl SelfDescribing for Batch {
             info: TaskDefInfo::OperatorDef {
                 inputs,
                 outputs,
-                build_operator: Self::new,
+                build_operator: |config| Box::pin(Self::new(config)),
             },
         }
     }

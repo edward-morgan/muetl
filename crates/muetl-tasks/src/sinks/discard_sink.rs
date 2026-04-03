@@ -24,7 +24,7 @@ pub struct DiscardSink {
 }
 
 impl DiscardSink {
-    pub fn new(_config: &TaskConfig) -> Result<Box<dyn Sink>, String> {
+    pub async fn new(_config: TaskConfig) -> Result<Box<dyn Sink>, String> {
         Ok(Box::new(DiscardSink { count: 0 }))
     }
 
@@ -50,7 +50,7 @@ impl SelfDescribing for DiscardSink {
             config_tpl: <Self as ConfigTemplate>::config_template(),
             info: TaskDefInfo::SinkDef {
                 inputs,
-                build_sink: Self::new,
+                build_sink: |config| Box::pin(Self::new(config)),
             },
         }
     }

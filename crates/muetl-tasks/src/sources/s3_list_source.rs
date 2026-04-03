@@ -62,7 +62,7 @@ pub struct S3ListSource {
 }
 
 impl S3ListSource {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Source>, String> {
+    pub async fn new(config: TaskConfig) -> Result<Box<dyn Source>, String> {
         let bucket = config.require_str("bucket").to_string();
         let prefix = config.get_str("prefix").map(|s| s.to_string());
         let region = config.get_str("region").map(|s| s.to_string());
