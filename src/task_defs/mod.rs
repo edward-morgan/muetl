@@ -164,7 +164,7 @@ macro_rules! impl_operator_handler {
                     info: $crate::registry::TaskDefInfo::OperatorDef {
                         inputs,
                         outputs,
-                        build_operator: <$ty>::new,
+                        build_operator: |config| Box::pin(<$ty>::new(config)),
                     },
                 }
             }
@@ -319,7 +319,7 @@ macro_rules! impl_sink_handler {
                     config_tpl: <$ty as $crate::task_defs::ConfigTemplate>::config_template(),
                     info: $crate::registry::TaskDefInfo::SinkDef {
                         inputs,
-                        build_sink: <$ty>::new,
+                        build_sink: |config| Box::pin(<$ty>::new(config)),
                     },
                 }
             }
@@ -417,7 +417,7 @@ macro_rules! impl_source_handler {
                     config_tpl: <$ty as $crate::task_defs::ConfigTemplate>::config_template(),
                     info: $crate::registry::TaskDefInfo::SourceDef {
                         outputs,
-                        build_source: <$ty>::new,
+                        build_source: |config| Box::pin(<$ty>::new(config)),
                     },
                 }
             }

@@ -31,7 +31,7 @@ fn create_test_registry() -> Registry {
         config_tpl: None,
         info: TaskDefInfo::SourceDef {
             outputs: number_source_outputs,
-            build_source: NumberSource::new,
+            build_source: |config| Box::pin(NumberSource::new(config)),
         },
     });
 
@@ -46,7 +46,7 @@ fn create_test_registry() -> Registry {
         info: TaskDefInfo::OperatorDef {
             inputs: adder_inputs,
             outputs: adder_outputs,
-            build_operator: Adder::new,
+            build_operator: |config| Box::pin(Adder::new(config)),
         },
     });
 
@@ -61,7 +61,7 @@ fn create_test_registry() -> Registry {
         info: TaskDefInfo::OperatorDef {
             inputs: multiplier_inputs,
             outputs: multiplier_outputs,
-            build_operator: Multiplier::new,
+            build_operator: |config| Box::pin(Multiplier::new(config)),
         },
     });
 
@@ -73,7 +73,7 @@ fn create_test_registry() -> Registry {
         config_tpl: None,
         info: TaskDefInfo::SinkDef {
             inputs: collector_inputs,
-            build_sink: ResultCollector::new,
+            build_sink: |config| Box::pin(ResultCollector::new(config)),
         },
     });
 

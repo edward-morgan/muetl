@@ -68,7 +68,7 @@ pub struct Filter {
 }
 
 impl Filter {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Operator>, String> {
+    pub async fn new(config: TaskConfig) -> Result<Box<dyn Operator>, String> {
         let op = config
             .get_str("op")
             .map(CompareOp::from_str)
@@ -143,7 +143,7 @@ impl SelfDescribing for Filter {
             info: TaskDefInfo::OperatorDef {
                 inputs,
                 outputs,
-                build_operator: Self::new,
+                build_operator: |config| Box::pin(Self::new(config)),
             },
         }
     }

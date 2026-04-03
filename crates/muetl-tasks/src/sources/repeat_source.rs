@@ -24,7 +24,7 @@ pub struct RepeatSource {
 }
 
 impl RepeatSource {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Source>, String> {
+    pub async fn new(config: TaskConfig) -> Result<Box<dyn Source>, String> {
         Ok(Box::new(RepeatSource {
             value: config.require_str("value").to_string(),
             remaining: config.get_i64("count").unwrap_or(10),

@@ -131,7 +131,7 @@ impl Root {
             TaskDefInfo::SourceDef {
                 outputs: _outputs,
                 build_source,
-            } => match build_source(&config) {
+            } => match build_source(config).await {
                 Ok(source) => {
                     let r = SourceActor::with_task_id(
                         task_id,
@@ -149,7 +149,7 @@ impl Root {
             TaskDefInfo::SinkDef {
                 inputs: _inputs,
                 build_sink,
-            } => match build_sink(&config) {
+            } => match build_sink(config).await {
                 Ok(sink) => {
                     let r = SinkActor::with_task_id(
                         task_id,
@@ -168,7 +168,7 @@ impl Root {
                 inputs: _inputs,
                 outputs: _outputs,
                 build_operator,
-            } => match build_operator(&config) {
+            } => match build_operator(config).await {
                 Ok(operator) => {
                     let r = OperatorActor::with_task_id(
                         task_id,

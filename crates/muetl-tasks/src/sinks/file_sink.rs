@@ -28,7 +28,7 @@ pub struct FileSink {
 }
 
 impl FileSink {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn muetl::task_defs::sink::Sink>, String> {
+    pub async fn new(config: TaskConfig) -> Result<Box<dyn muetl::task_defs::sink::Sink>, String> {
         let path = PathBuf::from(config.require_str("path"));
         let append = config.get_bool("append").unwrap_or(true);
         let flush_every = config.get_i64("flush_every").unwrap_or(1);
