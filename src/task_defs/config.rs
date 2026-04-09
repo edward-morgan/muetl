@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
+    path::PathBuf,
 };
 
 use chrono::{DateTime, Utc};
@@ -405,6 +406,7 @@ macro_rules! impl_config_template {
     (@type Str) => { $crate::task_defs::ConfigType::Str };
     (@type Bool) => { $crate::task_defs::ConfigType::Bool };
     (@type UtcDateTime) => { $crate::task_defs::ConfigType::UtcDateTime };
+    (@type Path) => { $crate::task_defs::ConfigType::Path };
 
     (@value Num, $val:expr) => {
         $crate::task_defs::ConfigValue::Num($val)
@@ -417,6 +419,9 @@ macro_rules! impl_config_template {
     };
     (@value UtcDateTime, $val:expr) => {
         $crate::task_defs::ConfigValue::Str($val.to_string())
+    };
+    (@value Path, $val:expr) => {
+        $crate::task_defs::ConfigValue::Path(std::path::PathBuf::from($val.to_string()))
     };
 
     // Helper rules to convert array values
@@ -668,14 +673,24 @@ impl ConfigField {
 /// The expected type of a configuration field
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ConfigType {
+    /// A string.
     Str,
+    /// An integer number.
     Num,
+    /// A boolean.
     Bool,
+    /// A date time in UTC.
     UtcDateTime,
+    /// An array containing elements of the same ConfigType.
     Arr(Box<ConfigType>),
+    /// A map of Strings to elements of the same ConfigType.
     Map(Box<ConfigType>),
+    /// Anything.
     Any,
+    /// An enumeration over variants of the same ConfigType.
     Enum(Vec<ConfigValue>),
+    /// A filesystem path.
+    Path,
 }
 
 impl ConfigType {
@@ -701,6 +716,7 @@ impl ConfigType {
                 }
                 return false;
             }
+            (ConfigType::Path, ConfigValue::Path(_)) => true,
             _ => false,
         }
     }
@@ -715,6 +731,7 @@ pub enum ConfigValue {
     UtcDateTime(DateTime<Utc>),
     Arr(Vec<ConfigValue>),
     Map(HashMap<String, ConfigValue>),
+    Path(PathBuf),
 }
 
 impl ConfigValue {
@@ -740,6 +757,7 @@ impl ConfigValue {
                     .unwrap_or(ConfigType::Any);
                 ConfigType::Map(Box::new(inner))
             }
+            Self::Path(_) => ConfigType::Path,
         }
     }
 
@@ -912,6 +930,13 @@ impl TaskConfig {
         }
     }
 
+    pub fn get_path(&self, key: &str) -> Option<PathBuf> {
+        match self.values.get(key)? {
+            ConfigValue::Path(p) => Some(p.clone()),
+            _ => None,
+        }
+    }
+
     pub fn require_str(&self, key: &str) -> &str {
         self.get_str(key)
             .unwrap_or_else(|| panic!("missing or invalid config key: {}", key))
@@ -929,6 +954,11 @@ impl TaskConfig {
 
     pub fn require_utc_datetime(&self, key: &str) -> DateTime<Utc> {
         self.get_utc_datetime(key)
+            .unwrap_or_else(|| panic!("missing or invalid config key: {}", key))
+    }
+
+    pub fn require_path(&self, key: &str) -> PathBuf {
+        self.get_path(key)
             .unwrap_or_else(|| panic!("missing or invalid config key: {}", key))
     }
 }
@@ -1083,6 +1113,15 @@ mod tests {
         assert!(!ty.matches(&ConfigValue::Num(0)));
     }
 
+    #[test]
+    fn matches_path() {
+        assert!(!ConfigType::Path.matches(&ConfigValue::Arr(vec![])));
+        assert!(!ConfigType::Path.matches(&ConfigValue::Bool(false)));
+        assert!(!ConfigType::Path.matches(&ConfigValue::Num(0)));
+        assert!(!ConfigType::Path.matches(&ConfigValue::Str("true".into())));
+        assert!(ConfigType::Path.matches(&ConfigValue::Path(PathBuf::from("true".to_string()))));
+    }
+
     // --- TaskConfig typed getters ---
 
     #[test]
@@ -1160,7 +1199,11 @@ mod tests {
         let mut values = HashMap::new();
         values.insert(
             "numbers".to_string(),
-            ConfigValue::Arr(vec![ConfigValue::Num(1), ConfigValue::Num(2), ConfigValue::Num(3)]),
+            ConfigValue::Arr(vec![
+                ConfigValue::Num(1),
+                ConfigValue::Num(2),
+                ConfigValue::Num(3),
+            ]),
         );
 
         let config = TaskConfig::new(values);
@@ -1206,7 +1249,11 @@ mod tests {
         let mut map = HashMap::new();
         map.insert(
             "series1".to_string(),
-            ConfigValue::Arr(vec![ConfigValue::Num(1), ConfigValue::Num(2), ConfigValue::Num(3)]),
+            ConfigValue::Arr(vec![
+                ConfigValue::Num(1),
+                ConfigValue::Num(2),
+                ConfigValue::Num(3),
+            ]),
         );
         map.insert(
             "series2".to_string(),
@@ -1242,5 +1289,18 @@ mod tests {
         assert!(config.get_string_map("missing").is_none());
         assert!(config.get_i64_map("missing").is_none());
         assert!(config.get_string_vec("missing").is_none());
+    }
+
+    #[test]
+    fn test_get_path() {
+        let mut hm: HashMap<String, ConfigValue> = HashMap::new();
+        hm.insert(
+            "my_path".to_string(),
+            ConfigValue::Path(PathBuf::from("/path")),
+        );
+        let config = TaskConfig::new(hm);
+        let cfg = config.get_path("my_path");
+        assert!(cfg.is_some());
+        assert!(cfg.iter().all(|p| *p == PathBuf::from("/path")));
     }
 }
