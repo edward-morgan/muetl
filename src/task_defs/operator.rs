@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use kameo::actor::ActorRef;
 
-use crate::messages::event::Event;
+use crate::{messages::event::Event, runtime::operator_actor::OperatorActor};
 
 use super::{MuetlContext, TaskDef};
 
@@ -24,5 +25,15 @@ pub trait Operator: TaskDef + Send + Sync {
     /// Default implementation does nothing.
     async fn prepare_shutdown(&mut self, _ctx: &MuetlContext) {
         // Default no-op implementation
+    }
+
+    /// As opposed to new(), which takes place before actor instantiation, on_start() is called
+    /// just after the Actor wrapping this Operator is spawned. This function can be used for
+    /// post-spawn initialization, specifically initialization that requires a reference
+    /// to the Actor responsible for this Task.
+    ///
+    /// This function is optional; the default implementation of `on_start` is a no-op.
+    async fn on_start(&mut self, _actor_ref: ActorRef<OperatorActor>) -> Result<(), String> {
+        Ok(())
     }
 }
