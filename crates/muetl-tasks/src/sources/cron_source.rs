@@ -26,7 +26,7 @@ pub struct CronSource {
 }
 
 impl CronSource {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Source>, String> {
+    pub async fn new(config: TaskConfig) -> Result<Box<dyn Source>, String> {
         let schedule_str = config.require_str("schedule");
         let schedule = Schedule::from_str(schedule_str)
             .map_err(|e| format!("invalid cron expression '{}': {}", schedule_str, e))?;

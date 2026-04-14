@@ -17,7 +17,7 @@ use serde_json::Value as JsonValue;
 pub struct LogSink {}
 
 impl LogSink {
-    pub fn new(_config: &TaskConfig) -> Result<Box<dyn Sink>, String> {
+    pub async fn new(_config: TaskConfig) -> Result<Box<dyn Sink>, String> {
         tracing::info!("Starting log sink");
         Ok(Box::new(LogSink {}))
     }
@@ -58,7 +58,7 @@ impl SelfDescribing for LogSink {
             config_tpl: <Self as ConfigTemplate>::config_template(),
             info: TaskDefInfo::SinkDef {
                 inputs,
-                build_sink: Self::new,
+                build_sink: |config| Box::pin(Self::new(config)),
             },
         }
     }

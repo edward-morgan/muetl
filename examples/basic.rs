@@ -16,7 +16,7 @@ use tokio::time::sleep;
 pub struct LogSink {}
 
 impl LogSink {
-    pub fn new(_config: &TaskConfig) -> Result<Box<dyn Sink>, String> {
+    pub async fn new(_config: TaskConfig) -> Result<Box<dyn Sink>, String> {
         Ok(Box::new(LogSink {}))
     }
 }
@@ -40,7 +40,7 @@ pub struct Ticker {
     iterations: i64,
 }
 impl Ticker {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Source>, String> {
+    pub async fn new(config: TaskConfig) -> Result<Box<dyn Source>, String> {
         Ok(Box::new(Ticker {
             t: 0,
             period: Duration::from_millis(config.require_i64("period_ms") as u64),

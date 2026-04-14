@@ -27,7 +27,7 @@ pub struct NumberSource {
 }
 
 impl NumberSource {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Source>, String> {
+    pub async fn new(config: TaskConfig) -> Result<Box<dyn Source>, String> {
         let max = config
             .get("count")
             .and_then(config_value_to_i64)
@@ -70,8 +70,8 @@ pub struct Adder {
 }
 
 impl Adder {
-    pub fn new(
-        config: &TaskConfig,
+    pub async fn new(
+        config: TaskConfig,
     ) -> Result<Box<dyn muetl::task_defs::operator::Operator>, String> {
         let addend = config
             .get("addend")
@@ -110,8 +110,8 @@ pub struct Multiplier {
 }
 
 impl Multiplier {
-    pub fn new(
-        config: &TaskConfig,
+    pub async fn new(
+        config: TaskConfig,
     ) -> Result<Box<dyn muetl::task_defs::operator::Operator>, String> {
         let factor = config
             .get("factor")
@@ -158,7 +158,7 @@ pub struct ResultCollector {
 }
 
 impl ResultCollector {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn muetl::task_defs::sink::Sink>, String> {
+    pub async fn new(config: TaskConfig) -> Result<Box<dyn muetl::task_defs::sink::Sink>, String> {
         let name = config
             .get("name")
             .and_then(config_value_to_string)

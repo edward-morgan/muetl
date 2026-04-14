@@ -29,7 +29,7 @@ pub struct RateLimit {
 }
 
 impl RateLimit {
-    pub fn new(config: &TaskConfig) -> Result<Box<dyn Operator>, String> {
+    pub async fn new(config: TaskConfig) -> Result<Box<dyn Operator>, String> {
         let max_per_second = config.get_i64("max_per_second").unwrap_or(10);
         let min_interval = if max_per_second > 0 {
             Duration::from_secs_f64(1.0 / max_per_second as f64)
@@ -60,7 +60,7 @@ impl SelfDescribing for RateLimit {
             info: TaskDefInfo::OperatorDef {
                 inputs,
                 outputs,
-                build_operator: Self::new,
+                build_operator: |config| Box::pin(Self::new(config)),
             },
         }
     }

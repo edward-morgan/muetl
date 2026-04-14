@@ -58,57 +58,90 @@ use crate::messages::{event::Event, Status};
 /// ```ignore
 /// impl_operator_handler!(Adder, task_id = "adder", inputs("input" => i64), outputs("output" => i64));
 /// ```
+///
+/// # Optional on_start Hook
+///
+/// You can optionally provide a custom `on_start` function that will be called after the actor is spawned:
+/// ```ignore
+/// async fn my_on_start(task: &mut Adder, actor_ref: ActorRef<OperatorActor>) -> Result<(), String> {
+///     // Custom initialization logic here
+///     Ok(())
+/// }
+///
+/// impl_operator_handler!(
+///     Adder,
+///     task_id = "adder",
+///     on_start = my_on_start,
+///     inputs("input" => i64),
+///     outputs("output" => i64)
+/// );
+/// ```
 #[macro_export]
 macro_rules! impl_operator_handler {
-    // New pattern with task_id for self-describing registration
-    ($ty:ty, task_id = $task_id:literal, inputs($($inputs:tt)*), outputs($($outputs:tt)*) $(,)?) => {
+    // New pattern with task_id and on_start for self-describing registration
+    ($ty:ty, task_id = $task_id:literal, on_start = $on_start:path, inputs($($inputs:tt)*), outputs($($outputs:tt)*) $(,)?) => {
         // Parse and expand inputs/outputs, then delegate to implementation
-        impl_operator_handler!(@expand_and_impl $ty, $task_id, inputs($($inputs)*), outputs($($outputs)*));
+        impl_operator_handler!(@expand_and_impl $ty, $task_id, $on_start, inputs($($inputs)*), outputs($($outputs)*));
     };
 
-    // Expand inputs and outputs, then generate implementations
-    (@expand_and_impl $ty:ty, $task_id:literal, inputs($($inputs:tt)*), outputs($($outputs:tt)*)) => {
+    // New pattern with task_id (no on_start) for self-describing registration
+    ($ty:ty, task_id = $task_id:literal, inputs($($inputs:tt)*), outputs($($outputs:tt)*) $(,)?) => {
+        // Parse and expand inputs/outputs, then delegate to implementation
+        impl_operator_handler!(@expand_and_impl_no_on_start $ty, $task_id, inputs($($inputs)*), outputs($($outputs)*));
+    };
+
+    // Expand inputs and outputs, then generate implementations (with on_start)
+    (@expand_and_impl $ty:ty, $task_id:literal, $on_start:path, inputs($($inputs:tt)*), outputs($($outputs:tt)*)) => {
         // First, expand the inputs and outputs syntax
-        impl_operator_handler!(@impl_with_expanded $ty, $task_id,
+        impl_operator_handler!(@impl_with_expanded $ty, $task_id, $on_start,
             inputs_expanded[], inputs_to_parse[$($inputs)*],
             outputs_expanded[], outputs_to_parse[$($outputs)*]
         );
     };
 
-    // Parse inputs: handle "conn" => [Type1, Type2, ...]
-    (@impl_with_expanded $ty:ty, $task_id:literal,
+    // Expand inputs and outputs, then generate implementations (without on_start)
+    (@expand_and_impl_no_on_start $ty:ty, $task_id:literal, inputs($($inputs:tt)*), outputs($($outputs:tt)*)) => {
+        // First, expand the inputs and outputs syntax
+        impl_operator_handler!(@impl_with_expanded_no_on_start $ty, $task_id,
+            inputs_expanded[], inputs_to_parse[$($inputs)*],
+            outputs_expanded[], outputs_to_parse[$($outputs)*]
+        );
+    };
+
+    // Parse inputs: handle "conn" => [Type1, Type2, ...] (with on_start)
+    (@impl_with_expanded $ty:ty, $task_id:literal, $on_start:path,
         inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
         inputs_to_parse[$conn:literal => [$($types:ty),+ $(,)?] $(, $($rest_in:tt)*)?],
         outputs_expanded[$($out_exp:tt)*], outputs_to_parse[$($rest_out:tt)*]
     ) => {
-        impl_operator_handler!(@impl_with_expanded $ty, $task_id,
+        impl_operator_handler!(@impl_with_expanded $ty, $task_id, $on_start,
             inputs_expanded[$($in_conn_exp => $input_ty_exp,)* $($conn => $types),*],
             inputs_to_parse[$($($rest_in)*)?],
             outputs_expanded[$($out_exp)*], outputs_to_parse[$($rest_out)*]
         );
     };
 
-    // Parse inputs: handle "conn" => Type
-    (@impl_with_expanded $ty:ty, $task_id:literal,
+    // Parse inputs: handle "conn" => Type (with on_start)
+    (@impl_with_expanded $ty:ty, $task_id:literal, $on_start:path,
         inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
         inputs_to_parse[$conn:literal => $single_type:ty $(, $($rest_in:tt)*)?],
         outputs_expanded[$($out_exp:tt)*], outputs_to_parse[$($rest_out:tt)*]
     ) => {
-        impl_operator_handler!(@impl_with_expanded $ty, $task_id,
+        impl_operator_handler!(@impl_with_expanded $ty, $task_id, $on_start,
             inputs_expanded[$($in_conn_exp => $input_ty_exp,)* $conn => $single_type],
             inputs_to_parse[$($($rest_in)*)?],
             outputs_expanded[$($out_exp)*], outputs_to_parse[$($rest_out)*]
         );
     };
 
-    // Done parsing inputs, now parse outputs: handle "conn" => [Type1, Type2, ...]
-    (@impl_with_expanded $ty:ty, $task_id:literal,
+    // Done parsing inputs, now parse outputs: handle "conn" => [Type1, Type2, ...] (with on_start)
+    (@impl_with_expanded $ty:ty, $task_id:literal, $on_start:path,
         inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
         inputs_to_parse[],
         outputs_expanded[$($out_conn_exp:literal => $output_ty_exp:ty),*],
         outputs_to_parse[$conn:literal => [$($types:ty),+ $(,)?] $(, $($rest:tt)*)?]
     ) => {
-        impl_operator_handler!(@impl_with_expanded $ty, $task_id,
+        impl_operator_handler!(@impl_with_expanded $ty, $task_id, $on_start,
             inputs_expanded[$($in_conn_exp => $input_ty_exp),*],
             inputs_to_parse[],
             outputs_expanded[$($out_conn_exp => $output_ty_exp,)* $($conn => $types),*],
@@ -116,14 +149,14 @@ macro_rules! impl_operator_handler {
         );
     };
 
-    // Done parsing inputs, now parse outputs: handle "conn" => Type
-    (@impl_with_expanded $ty:ty, $task_id:literal,
+    // Done parsing inputs, now parse outputs: handle "conn" => Type (with on_start)
+    (@impl_with_expanded $ty:ty, $task_id:literal, $on_start:path,
         inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
         inputs_to_parse[],
         outputs_expanded[$($out_conn_exp:literal => $output_ty_exp:ty),*],
         outputs_to_parse[$conn:literal => $single_type:ty $(, $($rest:tt)*)?]
     ) => {
-        impl_operator_handler!(@impl_with_expanded $ty, $task_id,
+        impl_operator_handler!(@impl_with_expanded $ty, $task_id, $on_start,
             inputs_expanded[$($in_conn_exp => $input_ty_exp),*],
             inputs_to_parse[],
             outputs_expanded[$($out_conn_exp => $output_ty_exp,)* $conn => $single_type],
@@ -131,8 +164,104 @@ macro_rules! impl_operator_handler {
         );
     };
 
-    // All parsing complete, generate the implementations
-    (@impl_with_expanded $ty:ty, $task_id:literal,
+    // Parse inputs: handle "conn" => [Type1, Type2, ...] (without on_start)
+    (@impl_with_expanded_no_on_start $ty:ty, $task_id:literal,
+        inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
+        inputs_to_parse[$conn:literal => [$($types:ty),+ $(,)?] $(, $($rest_in:tt)*)?],
+        outputs_expanded[$($out_exp:tt)*], outputs_to_parse[$($rest_out:tt)*]
+    ) => {
+        impl_operator_handler!(@impl_with_expanded_no_on_start $ty, $task_id,
+            inputs_expanded[$($in_conn_exp => $input_ty_exp,)* $($conn => $types),*],
+            inputs_to_parse[$($($rest_in)*)?],
+            outputs_expanded[$($out_exp)*], outputs_to_parse[$($rest_out)*]
+        );
+    };
+
+    // Parse inputs: handle "conn" => Type (without on_start)
+    (@impl_with_expanded_no_on_start $ty:ty, $task_id:literal,
+        inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
+        inputs_to_parse[$conn:literal => $single_type:ty $(, $($rest_in:tt)*)?],
+        outputs_expanded[$($out_exp:tt)*], outputs_to_parse[$($rest_out:tt)*]
+    ) => {
+        impl_operator_handler!(@impl_with_expanded_no_on_start $ty, $task_id,
+            inputs_expanded[$($in_conn_exp => $input_ty_exp,)* $conn => $single_type],
+            inputs_to_parse[$($($rest_in)*)?],
+            outputs_expanded[$($out_exp)*], outputs_to_parse[$($rest_out)*]
+        );
+    };
+
+    // Done parsing inputs, now parse outputs: handle "conn" => [Type1, Type2, ...] (without on_start)
+    (@impl_with_expanded_no_on_start $ty:ty, $task_id:literal,
+        inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
+        inputs_to_parse[],
+        outputs_expanded[$($out_conn_exp:literal => $output_ty_exp:ty),*],
+        outputs_to_parse[$conn:literal => [$($types:ty),+ $(,)?] $(, $($rest:tt)*)?]
+    ) => {
+        impl_operator_handler!(@impl_with_expanded_no_on_start $ty, $task_id,
+            inputs_expanded[$($in_conn_exp => $input_ty_exp),*],
+            inputs_to_parse[],
+            outputs_expanded[$($out_conn_exp => $output_ty_exp,)* $($conn => $types),*],
+            outputs_to_parse[$($($rest)*)?]
+        );
+    };
+
+    // Done parsing inputs, now parse outputs: handle "conn" => Type (without on_start)
+    (@impl_with_expanded_no_on_start $ty:ty, $task_id:literal,
+        inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
+        inputs_to_parse[],
+        outputs_expanded[$($out_conn_exp:literal => $output_ty_exp:ty),*],
+        outputs_to_parse[$conn:literal => $single_type:ty $(, $($rest:tt)*)?]
+    ) => {
+        impl_operator_handler!(@impl_with_expanded_no_on_start $ty, $task_id,
+            inputs_expanded[$($in_conn_exp => $input_ty_exp),*],
+            inputs_to_parse[],
+            outputs_expanded[$($out_conn_exp => $output_ty_exp,)* $conn => $single_type],
+            outputs_to_parse[$($($rest)*)?]
+        );
+    };
+
+    // All parsing complete, generate the implementations (with on_start)
+    (@impl_with_expanded $ty:ty, $task_id:literal, $on_start:path,
+        inputs_expanded[$($in_conn:literal => $input_ty:ty),*],
+        inputs_to_parse[],
+        outputs_expanded[$($out_conn:literal => $output_ty:ty),*],
+        outputs_to_parse[]
+    ) => {
+        // Generate the Operator trait implementation with custom on_start
+        impl_operator_handler!(@impl_trait_with_on_start $ty, $on_start, $($in_conn => $input_ty),*);
+
+        // Generate the SelfDescribing implementation
+        impl $crate::registry::SelfDescribing for $ty {
+            fn task_info() -> $crate::registry::TaskInfo {
+                let mut inputs = ::std::collections::HashMap::new();
+                $(
+                    inputs.entry($in_conn.to_string())
+                        .or_insert_with(Vec::new)
+                        .push(::std::any::TypeId::of::<$input_ty>());
+                )*
+
+                let mut outputs = ::std::collections::HashMap::new();
+                $(
+                    outputs.entry($out_conn.to_string())
+                        .or_insert_with(Vec::new)
+                        .push(::std::any::TypeId::of::<$output_ty>());
+                )*
+
+                $crate::registry::TaskInfo {
+                    task_id: $task_id.to_string(),
+                    config_tpl: <$ty as $crate::task_defs::ConfigTemplate>::config_template(),
+                    info: $crate::registry::TaskDefInfo::OperatorDef {
+                        inputs,
+                        outputs,
+                        build_operator: |config| Box::pin(<$ty>::new(config)),
+                    },
+                }
+            }
+        }
+    };
+
+    // All parsing complete, generate the implementations (without on_start)
+    (@impl_with_expanded_no_on_start $ty:ty, $task_id:literal,
         inputs_expanded[$($in_conn:literal => $input_ty:ty),*],
         inputs_to_parse[],
         outputs_expanded[$($out_conn:literal => $output_ty:ty),*],
@@ -164,7 +293,7 @@ macro_rules! impl_operator_handler {
                     info: $crate::registry::TaskDefInfo::OperatorDef {
                         inputs,
                         outputs,
-                        build_operator: <$ty>::new,
+                        build_operator: |config| Box::pin(<$ty>::new(config)),
                     },
                 }
             }
@@ -218,6 +347,53 @@ macro_rules! impl_operator_handler {
             }
         }
     };
+
+    // Internal rule to implement the Operator trait with custom on_start
+    (@impl_trait_with_on_start $ty:ty, $on_start:path, $($conn:literal => $input_ty:ty),*) => {
+        #[async_trait::async_trait]
+        impl $crate::task_defs::operator::Operator for $ty {
+            async fn handle_event_for_conn(
+                &mut self,
+                ctx: &$crate::task_defs::MuetlContext,
+                conn_name: &String,
+                ev: std::sync::Arc<$crate::messages::event::Event>,
+            ) {
+                // Try each connection/type pair in order
+                $(
+                    if conn_name == $conn {
+                        if let Some(data) = ev.get_data().downcast_ref::<$input_ty>() {
+                            <Self as $crate::task_defs::Input<$input_ty>>::handle(self, ctx, data).await;
+                            return;
+                        }
+                    }
+                )*
+
+                // If we get here, either the connection was unknown or all type downcasts failed
+                // Collect all known connection names for better error reporting
+                let known_connections: ::std::collections::HashSet<&str> = vec![$($conn),*].into_iter().collect();
+
+                if known_connections.contains(conn_name.as_str()) {
+                    tracing::warn!(
+                        conn_name = %conn_name,
+                        actual_type = ?ev.get_data().type_id(),
+                        event_name = %ev.name,
+                        "Type mismatch: failed to downcast event data to any expected type for this connection"
+                    );
+                } else {
+                    tracing::warn!(
+                        conn_name = %conn_name,
+                        event_name = %ev.name,
+                        known_connections = ?known_connections,
+                        "Unknown connection name for operator"
+                    );
+                }
+            }
+
+            async fn on_start(&mut self, actor_ref: kameo::actor::ActorRef<$crate::runtime::operator_actor::OperatorActor>) -> Result<(), String> {
+                $on_start(self, actor_ref).await
+            }
+        }
+    };
 }
 
 /// Generates the `handle_event_for_conn` implementation for a Sink.
@@ -259,45 +435,127 @@ macro_rules! impl_operator_handler {
 /// ```ignore
 /// impl_sink_handler!(MySink, task_id = "my_sink", "input" => String);
 /// ```
+///
+/// # Optional on_start Hook
+///
+/// You can optionally provide a custom `on_start` function that will be called after the actor is spawned:
+/// ```ignore
+/// async fn my_on_start(task: &mut MySink, actor_ref: ActorRef<SinkActor>) -> Result<(), String> {
+///     // Custom initialization logic here
+///     Ok(())
+/// }
+///
+/// impl_sink_handler!(
+///     MySink,
+///     task_id = "my_sink",
+///     on_start = my_on_start,
+///     "input" => String
+/// );
+/// ```
 #[macro_export]
 macro_rules! impl_sink_handler {
-    // New pattern with task_id for self-describing registration
-    ($ty:ty, task_id = $task_id:literal, $($inputs:tt)*) => {
+    // New pattern with task_id and on_start for self-describing registration
+    ($ty:ty, task_id = $task_id:literal, on_start = $on_start:path, $($inputs:tt)*) => {
         // Parse and expand inputs, then delegate to implementation
-        impl_sink_handler!(@expand_and_impl $ty, $task_id, inputs($($inputs)*));
+        impl_sink_handler!(@expand_and_impl $ty, $task_id, $on_start, inputs($($inputs)*));
     };
 
-    // Expand inputs, then generate implementations
-    (@expand_and_impl $ty:ty, $task_id:literal, inputs($($inputs:tt)*)) => {
-        impl_sink_handler!(@impl_with_expanded $ty, $task_id,
+    // New pattern with task_id (no on_start) for self-describing registration
+    ($ty:ty, task_id = $task_id:literal, $($inputs:tt)*) => {
+        // Parse and expand inputs, then delegate to implementation
+        impl_sink_handler!(@expand_and_impl_no_on_start $ty, $task_id, inputs($($inputs)*));
+    };
+
+    // Expand inputs, then generate implementations (with on_start)
+    (@expand_and_impl $ty:ty, $task_id:literal, $on_start:path, inputs($($inputs:tt)*)) => {
+        impl_sink_handler!(@impl_with_expanded $ty, $task_id, $on_start,
             inputs_expanded[], inputs_to_parse[$($inputs)*]
         );
     };
 
-    // Parse inputs: handle "conn" => [Type1, Type2, ...]
-    (@impl_with_expanded $ty:ty, $task_id:literal,
+    // Expand inputs, then generate implementations (without on_start)
+    (@expand_and_impl_no_on_start $ty:ty, $task_id:literal, inputs($($inputs:tt)*)) => {
+        impl_sink_handler!(@impl_with_expanded_no_on_start $ty, $task_id,
+            inputs_expanded[], inputs_to_parse[$($inputs)*]
+        );
+    };
+
+    // Parse inputs: handle "conn" => [Type1, Type2, ...] (with on_start)
+    (@impl_with_expanded $ty:ty, $task_id:literal, $on_start:path,
         inputs_expanded[$($conn_exp:literal => $input_ty_exp:ty),*],
         inputs_to_parse[$conn:literal => [$($types:ty),+ $(,)?] $(, $($rest:tt)*)?]
     ) => {
-        impl_sink_handler!(@impl_with_expanded $ty, $task_id,
+        impl_sink_handler!(@impl_with_expanded $ty, $task_id, $on_start,
             inputs_expanded[$($conn_exp => $input_ty_exp,)* $($conn => $types),*],
             inputs_to_parse[$($($rest)*)?]
         );
     };
 
-    // Parse inputs: handle "conn" => Type
-    (@impl_with_expanded $ty:ty, $task_id:literal,
+    // Parse inputs: handle "conn" => Type (with on_start)
+    (@impl_with_expanded $ty:ty, $task_id:literal, $on_start:path,
         inputs_expanded[$($conn_exp:literal => $input_ty_exp:ty),*],
         inputs_to_parse[$conn:literal => $single_type:ty $(, $($rest:tt)*)?]
     ) => {
-        impl_sink_handler!(@impl_with_expanded $ty, $task_id,
+        impl_sink_handler!(@impl_with_expanded $ty, $task_id, $on_start,
             inputs_expanded[$($conn_exp => $input_ty_exp,)* $conn => $single_type],
             inputs_to_parse[$($($rest)*)?]
         );
     };
 
-    // All parsing complete, generate the implementations
-    (@impl_with_expanded $ty:ty, $task_id:literal,
+    // All parsing complete, generate the implementations (with on_start)
+    (@impl_with_expanded $ty:ty, $task_id:literal, $on_start:path,
+        inputs_expanded[$($conn:literal => $input_ty:ty),*],
+        inputs_to_parse[]
+    ) => {
+        // Generate the Sink trait implementation with custom on_start
+        impl_sink_handler!(@impl_trait_with_on_start $ty, $on_start, $($conn => $input_ty),*);
+
+        // Generate the SelfDescribing implementation
+        impl $crate::registry::SelfDescribing for $ty {
+            fn task_info() -> $crate::registry::TaskInfo {
+                let mut inputs = ::std::collections::HashMap::new();
+                $(
+                    inputs.entry($conn.to_string())
+                        .or_insert_with(Vec::new)
+                        .push(::std::any::TypeId::of::<$input_ty>());
+                )*
+
+                $crate::registry::TaskInfo {
+                    task_id: $task_id.to_string(),
+                    config_tpl: <$ty as $crate::task_defs::ConfigTemplate>::config_template(),
+                    info: $crate::registry::TaskDefInfo::SinkDef {
+                        inputs,
+                        build_sink: |config| Box::pin(<$ty>::new(config)),
+                    },
+                }
+            }
+        }
+    };
+
+    // Parse inputs: handle "conn" => [Type1, Type2, ...] (without on_start)
+    (@impl_with_expanded_no_on_start $ty:ty, $task_id:literal,
+        inputs_expanded[$($conn_exp:literal => $input_ty_exp:ty),*],
+        inputs_to_parse[$conn:literal => [$($types:ty),+ $(,)?] $(, $($rest:tt)*)?]
+    ) => {
+        impl_sink_handler!(@impl_with_expanded_no_on_start $ty, $task_id,
+            inputs_expanded[$($conn_exp => $input_ty_exp,)* $($conn => $types),*],
+            inputs_to_parse[$($($rest)*)?]
+        );
+    };
+
+    // Parse inputs: handle "conn" => Type (without on_start)
+    (@impl_with_expanded_no_on_start $ty:ty, $task_id:literal,
+        inputs_expanded[$($conn_exp:literal => $input_ty_exp:ty),*],
+        inputs_to_parse[$conn:literal => $single_type:ty $(, $($rest:tt)*)?]
+    ) => {
+        impl_sink_handler!(@impl_with_expanded_no_on_start $ty, $task_id,
+            inputs_expanded[$($conn_exp => $input_ty_exp,)* $conn => $single_type],
+            inputs_to_parse[$($($rest)*)?]
+        );
+    };
+
+    // All parsing complete, generate the implementations (without on_start)
+    (@impl_with_expanded_no_on_start $ty:ty, $task_id:literal,
         inputs_expanded[$($conn:literal => $input_ty:ty),*],
         inputs_to_parse[]
     ) => {
@@ -319,7 +577,7 @@ macro_rules! impl_sink_handler {
                     config_tpl: <$ty as $crate::task_defs::ConfigTemplate>::config_template(),
                     info: $crate::registry::TaskDefInfo::SinkDef {
                         inputs,
-                        build_sink: <$ty>::new,
+                        build_sink: |config| Box::pin(<$ty>::new(config)),
                     },
                 }
             }
@@ -372,6 +630,52 @@ macro_rules! impl_sink_handler {
             }
         }
     };
+
+    // Internal rule to implement the Sink trait with custom on_start
+    (@impl_trait_with_on_start $ty:ty, $on_start:path, $($conn:literal => $input_ty:ty),*) => {
+        #[async_trait::async_trait]
+        impl $crate::task_defs::sink::Sink for $ty {
+            async fn handle_event_for_conn(
+                &mut self,
+                ctx: &$crate::task_defs::MuetlSinkContext,
+                conn_name: &String,
+                ev: std::sync::Arc<$crate::messages::event::Event>,
+            ) {
+                // Try each connection/type pair in order
+                $(
+                    if conn_name == $conn {
+                        if let Some(data) = ev.get_data().downcast_ref::<$input_ty>() {
+                            <Self as $crate::task_defs::SinkInput<$input_ty>>::handle(self, ctx, data).await;
+                            return;
+                        }
+                    }
+                )*
+
+                // If we get here, either the connection was unknown or all type downcasts failed
+                // Collect all known connection names for better error reporting
+                let known_connections: ::std::collections::HashSet<&str> = vec![$($conn),*].into_iter().collect();
+
+                if known_connections.contains(conn_name.as_str()) {
+                    tracing::warn!(
+                        conn_name = %conn_name,
+                        actual_type = ?ev.get_data().type_id(),
+                        event_name = %ev.name,
+                        "Type mismatch: failed to downcast event data to any expected type for this connection"
+                    );
+                } else {
+                    tracing::warn!(
+                        conn_name = %conn_name,
+                        event_name = %ev.name,
+                        "Unknown connection name for sink"
+                    );
+                }
+            }
+
+            async fn on_start(&mut self, actor_ref: kameo::actor::ActorRef<$crate::runtime::sink_actor::SinkActor>) -> Result<(), String> {
+                $on_start(self, actor_ref).await
+            }
+        }
+    };
 }
 
 /// Generates the SelfDescribing trait implementation for a Source.
@@ -400,8 +704,58 @@ macro_rules! impl_sink_handler {
 ///     iterations: Uint = 10,
 /// );
 /// ```
+///
+/// # Optional on_start Hook
+///
+/// You can optionally provide a custom `on_start` function that will be called after the actor is spawned:
+/// ```ignore
+/// async fn my_on_start(task: &mut Ticker, actor_ref: ActorRef<SourceActor>) -> Result<(), String> {
+///     // Custom initialization logic here
+///     Ok(())
+/// }
+///
+/// impl_source_handler!(
+///     Ticker,
+///     task_id = "ticker",
+///     on_start = my_on_start,
+///     "tick" => u64
+/// );
+/// ```
 #[macro_export]
 macro_rules! impl_source_handler {
+    // Pattern with on_start
+    ($ty:ty, task_id = $task_id:literal, on_start = $on_start:path, $($conn:literal => $output_ty:ty),* $(,)?) => {
+        // Generate Source trait implementation with custom on_start
+        #[async_trait::async_trait]
+        impl $crate::task_defs::source::Source for $ty {
+            async fn on_start(&mut self, actor_ref: kameo::actor::ActorRef<$crate::runtime::source_actor::SourceActor>) -> Result<(), String> {
+                $on_start(self, actor_ref).await
+            }
+        }
+
+        // Generate SelfDescribing implementation
+        impl $crate::registry::SelfDescribing for $ty {
+            fn task_info() -> $crate::registry::TaskInfo {
+                let mut outputs = ::std::collections::HashMap::new();
+                $(
+                    outputs.entry($conn.to_string())
+                        .or_insert_with(Vec::new)
+                        .push(::std::any::TypeId::of::<$output_ty>());
+                )*
+
+                $crate::registry::TaskInfo {
+                    task_id: $task_id.to_string(),
+                    config_tpl: <$ty as $crate::task_defs::ConfigTemplate>::config_template(),
+                    info: $crate::registry::TaskDefInfo::SourceDef {
+                        outputs,
+                        build_source: |config| Box::pin(<$ty>::new(config)),
+                    },
+                }
+            }
+        }
+    };
+
+    // Pattern without on_start
     ($ty:ty, task_id = $task_id:literal, $($conn:literal => $output_ty:ty),* $(,)?) => {
         impl $crate::registry::SelfDescribing for $ty {
             fn task_info() -> $crate::registry::TaskInfo {
@@ -417,7 +771,7 @@ macro_rules! impl_source_handler {
                     config_tpl: <$ty as $crate::task_defs::ConfigTemplate>::config_template(),
                     info: $crate::registry::TaskDefInfo::SourceDef {
                         outputs,
-                        build_source: <$ty>::new,
+                        build_source: |config| Box::pin(<$ty>::new(config)),
                     },
                 }
             }

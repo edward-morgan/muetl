@@ -1,4 +1,6 @@
 use std::{any::TypeId, collections::HashMap, sync::Arc};
+use std::future::Future;
+use std::pin::Pin;
 
 use crate::task_defs::{TaskConfig, TaskConfigTpl};
 
@@ -20,16 +22,16 @@ pub struct TaskInfo {
 pub enum TaskDefInfo {
     SourceDef {
         outputs: HashMap<String, Vec<TypeId>>,
-        build_source: fn(&TaskConfig) -> Result<Box<dyn Source>, String>,
+        build_source: fn(TaskConfig) -> Pin<Box<dyn Future<Output = Result<Box<dyn Source>, String>> + Send>>,
     },
     SinkDef {
         inputs: HashMap<String, Vec<TypeId>>,
-        build_sink: fn(&TaskConfig) -> Result<Box<dyn Sink>, String>,
+        build_sink: fn(TaskConfig) -> Pin<Box<dyn Future<Output = Result<Box<dyn Sink>, String>> + Send>>,
     },
     OperatorDef {
         inputs: HashMap<String, Vec<TypeId>>,
         outputs: HashMap<String, Vec<TypeId>>,
-        build_operator: fn(&TaskConfig) -> Result<Box<dyn Operator>, String>,
+        build_operator: fn(TaskConfig) -> Pin<Box<dyn Future<Output = Result<Box<dyn Operator>, String>> + Send>>,
     },
 }
 
@@ -78,7 +80,7 @@ mod tests {
             config_tpl: None,
             info: TaskDefInfo::SourceDef {
                 outputs: HashMap::new(),
-                build_source: |_| Err("stub".to_string()),
+                build_source: |_config| Box::pin(async { Err("stub".to_string()) }),
             },
         }
     }
@@ -89,7 +91,7 @@ mod tests {
             config_tpl: None,
             info: TaskDefInfo::SinkDef {
                 inputs: HashMap::new(),
-                build_sink: |_| Err("stub".to_string()),
+                build_sink: |_config| Box::pin(async { Err("stub".to_string()) }),
             },
         }
     }
@@ -178,7 +180,7 @@ mod tests {
                 info: TaskDefInfo::OperatorDef {
                     inputs: HashMap::new(),
                     outputs: HashMap::new(),
-                    build_operator: |_| Err("stub".to_string()),
+                    build_operator: |_config| Box::pin(async { Err("stub".to_string()) }),
                 },
             }
         }
