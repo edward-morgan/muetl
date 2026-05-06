@@ -12,6 +12,9 @@ tracing = "0.1.43"
 serde = "1.0"
 serde_json = "1.0"
 rquickjs = { version = "0.11.0", features = ["bindgen", "loader"] }
+# Keep AWS features explicit so we can use the modern default HTTPS client
+# without enabling the legacy `rustls` feature, which pulls in `rustls 0.21`
+# through the Hyper 0.14 connector path.
 aws-config = { version = "1.8", default-features = false, features = [
   "behavior-version-latest",
   "default-https-client",
