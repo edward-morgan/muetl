@@ -58,20 +58,42 @@ use crate::messages::{event::Event, Status};
 /// ```ignore
 /// impl_operator_handler!(Adder, task_id = "adder", inputs("input" => i64), outputs("output" => i64));
 /// ```
+///
+/// To override the `Operator::prepare_shutdown` hook, add `prepare_shutdown(self_ref, ctx) { ... }`.
+/// The first identifier is bound to `&mut self` and the second to `&MuetlContext` inside the
+/// generated method:
+///
+/// ```ignore
+/// impl_operator_handler!(
+///     BufferingOperator,
+///     task_id = "buffering_operator",
+///     inputs("input" => i64),
+///     outputs("output" => Vec<i64>),
+///     prepare_shutdown(this, ctx) {
+///         this.flush(ctx).await;
+///     }
+/// );
+/// ```
 #[macro_export]
 macro_rules! impl_operator_handler {
+    // New pattern with task_id and prepare_shutdown hook for self-describing registration
+    ($ty:ty, task_id = $task_id:literal, inputs($($inputs:tt)*), outputs($($outputs:tt)*), prepare_shutdown($this:ident, $ctx:ident) $shutdown:block $(,)?) => {
+        impl_operator_handler!(@expand_and_impl $ty, $task_id, inputs($($inputs)*), outputs($($outputs)*), shutdown($this, $ctx, $shutdown));
+    };
+
     // New pattern with task_id for self-describing registration
     ($ty:ty, task_id = $task_id:literal, inputs($($inputs:tt)*), outputs($($outputs:tt)*) $(,)?) => {
         // Parse and expand inputs/outputs, then delegate to implementation
-        impl_operator_handler!(@expand_and_impl $ty, $task_id, inputs($($inputs)*), outputs($($outputs)*));
+        impl_operator_handler!(@expand_and_impl $ty, $task_id, inputs($($inputs)*), outputs($($outputs)*), shutdown());
     };
 
     // Expand inputs and outputs, then generate implementations
-    (@expand_and_impl $ty:ty, $task_id:literal, inputs($($inputs:tt)*), outputs($($outputs:tt)*)) => {
+    (@expand_and_impl $ty:ty, $task_id:literal, inputs($($inputs:tt)*), outputs($($outputs:tt)*), shutdown($($shutdown:tt)*)) => {
         // First, expand the inputs and outputs syntax
         impl_operator_handler!(@impl_with_expanded $ty, $task_id,
             inputs_expanded[], inputs_to_parse[$($inputs)*],
-            outputs_expanded[], outputs_to_parse[$($outputs)*]
+            outputs_expanded[], outputs_to_parse[$($outputs)*],
+            shutdown($($shutdown)*)
         );
     };
 
@@ -79,12 +101,14 @@ macro_rules! impl_operator_handler {
     (@impl_with_expanded $ty:ty, $task_id:literal,
         inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
         inputs_to_parse[$conn:literal => [$($types:ty),+ $(,)?] $(, $($rest_in:tt)*)?],
-        outputs_expanded[$($out_exp:tt)*], outputs_to_parse[$($rest_out:tt)*]
+        outputs_expanded[$($out_exp:tt)*], outputs_to_parse[$($rest_out:tt)*],
+        shutdown($($shutdown:tt)*)
     ) => {
         impl_operator_handler!(@impl_with_expanded $ty, $task_id,
             inputs_expanded[$($in_conn_exp => $input_ty_exp,)* $($conn => $types),*],
             inputs_to_parse[$($($rest_in)*)?],
-            outputs_expanded[$($out_exp)*], outputs_to_parse[$($rest_out)*]
+            outputs_expanded[$($out_exp)*], outputs_to_parse[$($rest_out)*],
+            shutdown($($shutdown)*)
         );
     };
 
@@ -92,12 +116,14 @@ macro_rules! impl_operator_handler {
     (@impl_with_expanded $ty:ty, $task_id:literal,
         inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
         inputs_to_parse[$conn:literal => $single_type:ty $(, $($rest_in:tt)*)?],
-        outputs_expanded[$($out_exp:tt)*], outputs_to_parse[$($rest_out:tt)*]
+        outputs_expanded[$($out_exp:tt)*], outputs_to_parse[$($rest_out:tt)*],
+        shutdown($($shutdown:tt)*)
     ) => {
         impl_operator_handler!(@impl_with_expanded $ty, $task_id,
             inputs_expanded[$($in_conn_exp => $input_ty_exp,)* $conn => $single_type],
             inputs_to_parse[$($($rest_in)*)?],
-            outputs_expanded[$($out_exp)*], outputs_to_parse[$($rest_out)*]
+            outputs_expanded[$($out_exp)*], outputs_to_parse[$($rest_out)*],
+            shutdown($($shutdown)*)
         );
     };
 
@@ -106,13 +132,15 @@ macro_rules! impl_operator_handler {
         inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
         inputs_to_parse[],
         outputs_expanded[$($out_conn_exp:literal => $output_ty_exp:ty),*],
-        outputs_to_parse[$conn:literal => [$($types:ty),+ $(,)?] $(, $($rest:tt)*)?]
+        outputs_to_parse[$conn:literal => [$($types:ty),+ $(,)?] $(, $($rest:tt)*)?],
+        shutdown($($shutdown:tt)*)
     ) => {
         impl_operator_handler!(@impl_with_expanded $ty, $task_id,
             inputs_expanded[$($in_conn_exp => $input_ty_exp),*],
             inputs_to_parse[],
             outputs_expanded[$($out_conn_exp => $output_ty_exp,)* $($conn => $types),*],
-            outputs_to_parse[$($($rest)*)?]
+            outputs_to_parse[$($($rest)*)?],
+            shutdown($($shutdown)*)
         );
     };
 
@@ -121,13 +149,15 @@ macro_rules! impl_operator_handler {
         inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
         inputs_to_parse[],
         outputs_expanded[$($out_conn_exp:literal => $output_ty_exp:ty),*],
-        outputs_to_parse[$conn:literal => $single_type:ty $(, $($rest:tt)*)?]
+        outputs_to_parse[$conn:literal => $single_type:ty $(, $($rest:tt)*)?],
+        shutdown($($shutdown:tt)*)
     ) => {
         impl_operator_handler!(@impl_with_expanded $ty, $task_id,
             inputs_expanded[$($in_conn_exp => $input_ty_exp),*],
             inputs_to_parse[],
             outputs_expanded[$($out_conn_exp => $output_ty_exp,)* $conn => $single_type],
-            outputs_to_parse[$($($rest)*)?]
+            outputs_to_parse[$($($rest)*)?],
+            shutdown($($shutdown)*)
         );
     };
 
@@ -136,10 +166,11 @@ macro_rules! impl_operator_handler {
         inputs_expanded[$($in_conn:literal => $input_ty:ty),*],
         inputs_to_parse[],
         outputs_expanded[$($out_conn:literal => $output_ty:ty),*],
-        outputs_to_parse[]
+        outputs_to_parse[],
+        shutdown($($shutdown:tt)*)
     ) => {
         // Generate the Operator trait implementation
-        impl_operator_handler!(@impl_trait $ty, $($in_conn => $input_ty),*);
+        impl_operator_handler!(@impl_trait $ty, shutdown($($shutdown)*), inputs[$($in_conn => $input_ty),*]);
 
         // Generate the SelfDescribing implementation
         impl $crate::registry::SelfDescribing for $ty {
@@ -171,13 +202,18 @@ macro_rules! impl_operator_handler {
         }
     };
 
+    // Old pattern with prepare_shutdown hook for backward compatibility
+    ($ty:ty, $($conn:literal => $input_ty:ty),*, prepare_shutdown($this:ident, $ctx:ident) $shutdown:block $(,)?) => {
+        impl_operator_handler!(@impl_trait $ty, shutdown($this, $ctx, $shutdown), inputs[$($conn => $input_ty),*]);
+    };
+
     // Old pattern for backward compatibility
     ($ty:ty, $($conn:literal => $input_ty:ty),* $(,)?) => {
-        impl_operator_handler!(@impl_trait $ty, $($conn => $input_ty),*);
+        impl_operator_handler!(@impl_trait $ty, shutdown(), inputs[$($conn => $input_ty),*]);
     };
 
     // Internal rule to implement the Operator trait
-    (@impl_trait $ty:ty, $($conn:literal => $input_ty:ty),*) => {
+    (@impl_trait $ty:ty, shutdown(), inputs[$($conn:literal => $input_ty:ty),*]) => {
         #[async_trait::async_trait]
         impl $crate::task_defs::operator::Operator for $ty {
             async fn handle_event_for_conn(
@@ -215,6 +251,55 @@ macro_rules! impl_operator_handler {
                         "Unknown connection name for operator"
                     );
                 }
+            }
+        }
+    };
+
+    // Internal rule to implement the Operator trait with a prepare_shutdown hook
+    (@impl_trait $ty:ty, shutdown($this:ident, $ctx:ident, $shutdown:block), inputs[$($conn:literal => $input_ty:ty),*]) => {
+        #[async_trait::async_trait]
+        impl $crate::task_defs::operator::Operator for $ty {
+            async fn handle_event_for_conn(
+                &mut self,
+                ctx: &$crate::task_defs::MuetlContext,
+                conn_name: &String,
+                ev: std::sync::Arc<$crate::messages::event::Event>,
+            ) {
+                // Try each connection/type pair in order
+                $(
+                    if conn_name == $conn {
+                        if let Some(data) = ev.get_data().downcast_ref::<$input_ty>() {
+                            <Self as $crate::task_defs::Input<$input_ty>>::handle(self, ctx, data).await;
+                            return;
+                        }
+                    }
+                )*
+
+                // If we get here, either the connection was unknown or all type downcasts failed
+                // Collect all known connection names for better error reporting
+                let known_connections: ::std::collections::HashSet<&str> = vec![$($conn),*].into_iter().collect();
+
+                if known_connections.contains(conn_name.as_str()) {
+                    tracing::warn!(
+                        conn_name = %conn_name,
+                        actual_type = ?ev.get_data().type_id(),
+                        event_name = %ev.name,
+                        "Type mismatch: failed to downcast event data to any expected type for this connection"
+                    );
+                } else {
+                    tracing::warn!(
+                        conn_name = %conn_name,
+                        event_name = %ev.name,
+                        known_connections = ?known_connections,
+                        "Unknown connection name for operator"
+                    );
+                }
+            }
+
+            async fn prepare_shutdown(&mut self, ctx: &$crate::task_defs::MuetlContext) {
+                let $this = self;
+                let $ctx = ctx;
+                $shutdown
             }
         }
     };
@@ -259,50 +344,84 @@ macro_rules! impl_operator_handler {
 /// ```ignore
 /// impl_sink_handler!(MySink, task_id = "my_sink", "input" => String);
 /// ```
+///
+/// To override the `Sink::prepare_shutdown` hook, add `prepare_shutdown(self_ref, ctx) { ... }`.
+/// The first identifier is bound to `&mut self` and the second to `&MuetlSinkContext`
+/// inside the generated method:
+///
+/// ```ignore
+/// impl_sink_handler!(
+///     MySink,
+///     task_id = "my_sink",
+///     "input" => String,
+///     prepare_shutdown(this, ctx) {
+///         this.flush(ctx).await;
+///     }
+/// );
+/// ```
 #[macro_export]
 macro_rules! impl_sink_handler {
     // New pattern with task_id for self-describing registration
     ($ty:ty, task_id = $task_id:literal, $($inputs:tt)*) => {
         // Parse and expand inputs, then delegate to implementation
-        impl_sink_handler!(@expand_and_impl $ty, $task_id, inputs($($inputs)*));
+        impl_sink_handler!(@expand_and_impl $ty, $task_id, inputs($($inputs)*), shutdown());
     };
 
     // Expand inputs, then generate implementations
-    (@expand_and_impl $ty:ty, $task_id:literal, inputs($($inputs:tt)*)) => {
+    (@expand_and_impl $ty:ty, $task_id:literal, inputs($($inputs:tt)*), shutdown($($shutdown:tt)*)) => {
         impl_sink_handler!(@impl_with_expanded $ty, $task_id,
-            inputs_expanded[], inputs_to_parse[$($inputs)*]
+            inputs_expanded[], inputs_to_parse[$($inputs)*],
+            shutdown($($shutdown)*)
+        );
+    };
+
+    // Parse optional prepare_shutdown hook at the end of the input list.
+    (@impl_with_expanded $ty:ty, $task_id:literal,
+        inputs_expanded[$($conn_exp:literal => $input_ty_exp:ty),*],
+        inputs_to_parse[prepare_shutdown($this:ident, $ctx:ident) $shutdown:block $(,)?],
+        shutdown()
+    ) => {
+        impl_sink_handler!(@impl_with_expanded $ty, $task_id,
+            inputs_expanded[$($conn_exp => $input_ty_exp),*],
+            inputs_to_parse[],
+            shutdown($this, $ctx, $shutdown)
         );
     };
 
     // Parse inputs: handle "conn" => [Type1, Type2, ...]
     (@impl_with_expanded $ty:ty, $task_id:literal,
         inputs_expanded[$($conn_exp:literal => $input_ty_exp:ty),*],
-        inputs_to_parse[$conn:literal => [$($types:ty),+ $(,)?] $(, $($rest:tt)*)?]
+        inputs_to_parse[$conn:literal => [$($types:ty),+ $(,)?] $(, $($rest:tt)*)?],
+        shutdown($($shutdown:tt)*)
     ) => {
         impl_sink_handler!(@impl_with_expanded $ty, $task_id,
             inputs_expanded[$($conn_exp => $input_ty_exp,)* $($conn => $types),*],
-            inputs_to_parse[$($($rest)*)?]
+            inputs_to_parse[$($($rest)*)?],
+            shutdown($($shutdown)*)
         );
     };
 
     // Parse inputs: handle "conn" => Type
     (@impl_with_expanded $ty:ty, $task_id:literal,
         inputs_expanded[$($conn_exp:literal => $input_ty_exp:ty),*],
-        inputs_to_parse[$conn:literal => $single_type:ty $(, $($rest:tt)*)?]
+        inputs_to_parse[$conn:literal => $single_type:ty $(, $($rest:tt)*)?],
+        shutdown($($shutdown:tt)*)
     ) => {
         impl_sink_handler!(@impl_with_expanded $ty, $task_id,
             inputs_expanded[$($conn_exp => $input_ty_exp,)* $conn => $single_type],
-            inputs_to_parse[$($($rest)*)?]
+            inputs_to_parse[$($($rest)*)?],
+            shutdown($($shutdown)*)
         );
     };
 
     // All parsing complete, generate the implementations
     (@impl_with_expanded $ty:ty, $task_id:literal,
         inputs_expanded[$($conn:literal => $input_ty:ty),*],
-        inputs_to_parse[]
+        inputs_to_parse[],
+        shutdown($($shutdown:tt)*)
     ) => {
         // Generate the Sink trait implementation
-        impl_sink_handler!(@impl_trait $ty, $($conn => $input_ty),*);
+        impl_sink_handler!(@impl_trait $ty, shutdown($($shutdown)*), inputs[$($conn => $input_ty),*]);
 
         // Generate the SelfDescribing implementation
         impl $crate::registry::SelfDescribing for $ty {
@@ -326,13 +445,18 @@ macro_rules! impl_sink_handler {
         }
     };
 
+    // Old pattern with prepare_shutdown hook for backward compatibility
+    ($ty:ty, $($conn:literal => $input_ty:ty),*, prepare_shutdown($this:ident, $ctx:ident) $shutdown:block $(,)?) => {
+        impl_sink_handler!(@impl_trait $ty, shutdown($this, $ctx, $shutdown), inputs[$($conn => $input_ty),*]);
+    };
+
     // Old pattern for backward compatibility
     ($ty:ty, $($conn:literal => $input_ty:ty),* $(,)?) => {
-        impl_sink_handler!(@impl_trait $ty, $($conn => $input_ty),*);
+        impl_sink_handler!(@impl_trait $ty, shutdown(), inputs[$($conn => $input_ty),*]);
     };
 
     // Internal rule to implement the Sink trait
-    (@impl_trait $ty:ty, $($conn:literal => $input_ty:ty),*) => {
+    (@impl_trait $ty:ty, shutdown(), inputs[$($conn:literal => $input_ty:ty),*]) => {
         #[async_trait::async_trait]
         impl $crate::task_defs::sink::Sink for $ty {
             async fn handle_event_for_conn(
@@ -372,6 +496,54 @@ macro_rules! impl_sink_handler {
             }
         }
     };
+
+    // Internal rule to implement the Sink trait with a prepare_shutdown hook
+    (@impl_trait $ty:ty, shutdown($this:ident, $ctx:ident, $shutdown:block), inputs[$($conn:literal => $input_ty:ty),*]) => {
+        #[async_trait::async_trait]
+        impl $crate::task_defs::sink::Sink for $ty {
+            async fn handle_event_for_conn(
+                &mut self,
+                ctx: &$crate::task_defs::MuetlSinkContext,
+                conn_name: &String,
+                ev: std::sync::Arc<$crate::messages::event::Event>,
+            ) {
+                // Try each connection/type pair in order
+                $(
+                    if conn_name == $conn {
+                        if let Some(data) = ev.get_data().downcast_ref::<$input_ty>() {
+                            <Self as $crate::task_defs::SinkInput<$input_ty>>::handle(self, ctx, data).await;
+                            return;
+                        }
+                    }
+                )*
+
+                // If we get here, either the connection was unknown or all type downcasts failed
+                // Collect all known connection names for better error reporting
+                let known_connections: ::std::collections::HashSet<&str> = vec![$($conn),*].into_iter().collect();
+
+                if known_connections.contains(conn_name.as_str()) {
+                    tracing::warn!(
+                        conn_name = %conn_name,
+                        actual_type = ?ev.get_data().type_id(),
+                        event_name = %ev.name,
+                        "Type mismatch: failed to downcast event data to any expected type for this connection"
+                    );
+                } else {
+                    tracing::warn!(
+                        conn_name = %conn_name,
+                        event_name = %ev.name,
+                        "Unknown connection name for sink"
+                    );
+                }
+            }
+
+            async fn prepare_shutdown(&mut self, ctx: &$crate::task_defs::MuetlSinkContext) {
+                let $this = self;
+                let $ctx = ctx;
+                $shutdown
+            }
+        }
+    };
 }
 
 /// Generates the SelfDescribing trait implementation for a Source.
@@ -400,9 +572,41 @@ macro_rules! impl_sink_handler {
 ///     iterations: Uint = 10,
 /// );
 /// ```
+///
+/// The standard form only generates `SelfDescribing`; implement `Source` manually when
+/// you need full control. To let the macro generate `Source` as well, provide a `run`
+/// body and, optionally, a `prepare_shutdown` body:
+///
+/// ```ignore
+/// impl_source_handler!(
+///     Ticker,
+///     task_id = "ticker",
+///     outputs("tick" => u64),
+///     run(this, ctx) {
+///         this.emit_tick(ctx).await;
+///     },
+///     prepare_shutdown(this, ctx) {
+///         this.flush(ctx).await;
+///     }
+/// );
+/// ```
 #[macro_export]
 macro_rules! impl_source_handler {
+    ($ty:ty, task_id = $task_id:literal, outputs($($conn:literal => $output_ty:ty),* $(,)?), run($run_this:ident, $run_ctx:ident) $run:block, prepare_shutdown($shutdown_this:ident, $shutdown_ctx:ident) $shutdown:block $(,)?) => {
+        impl_source_handler!(@impl_trait $ty, run($run_this, $run_ctx, $run), shutdown($shutdown_this, $shutdown_ctx, $shutdown));
+        impl_source_handler!(@impl_self_describing $ty, $task_id, $($conn => $output_ty),*);
+    };
+
+    ($ty:ty, task_id = $task_id:literal, outputs($($conn:literal => $output_ty:ty),* $(,)?), run($run_this:ident, $run_ctx:ident) $run:block $(,)?) => {
+        impl_source_handler!(@impl_trait $ty, run($run_this, $run_ctx, $run), shutdown());
+        impl_source_handler!(@impl_self_describing $ty, $task_id, $($conn => $output_ty),*);
+    };
+
     ($ty:ty, task_id = $task_id:literal, $($conn:literal => $output_ty:ty),* $(,)?) => {
+        impl_source_handler!(@impl_self_describing $ty, $task_id, $($conn => $output_ty),*);
+    };
+
+    (@impl_self_describing $ty:ty, $task_id:literal, $($conn:literal => $output_ty:ty),*) => {
         impl $crate::registry::SelfDescribing for $ty {
             fn task_info() -> $crate::registry::TaskInfo {
                 let mut outputs = ::std::collections::HashMap::new();
@@ -420,6 +624,34 @@ macro_rules! impl_source_handler {
                         build_source: |config| Box::pin(<$ty>::new(config)),
                     },
                 }
+            }
+        }
+    };
+
+    (@impl_trait $ty:ty, run($run_this:ident, $run_ctx:ident, $run:block), shutdown()) => {
+        #[async_trait::async_trait]
+        impl $crate::task_defs::source::Source for $ty {
+            async fn run(&mut self, ctx: &$crate::task_defs::MuetlContext) {
+                let $run_this = self;
+                let $run_ctx = ctx;
+                $run
+            }
+        }
+    };
+
+    (@impl_trait $ty:ty, run($run_this:ident, $run_ctx:ident, $run:block), shutdown($shutdown_this:ident, $shutdown_ctx:ident, $shutdown:block)) => {
+        #[async_trait::async_trait]
+        impl $crate::task_defs::source::Source for $ty {
+            async fn run(&mut self, ctx: &$crate::task_defs::MuetlContext) {
+                let $run_this = self;
+                let $run_ctx = ctx;
+                $run
+            }
+
+            async fn prepare_shutdown(&mut self, ctx: &$crate::task_defs::MuetlContext) {
+                let $shutdown_this = self;
+                let $shutdown_ctx = ctx;
+                $shutdown
             }
         }
     };
