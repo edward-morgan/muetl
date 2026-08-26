@@ -1,6 +1,6 @@
-use std::{any::TypeId, collections::HashMap, sync::Arc};
 use std::future::Future;
 use std::pin::Pin;
+use std::{any::TypeId, collections::HashMap, sync::Arc};
 
 use crate::task_defs::{TaskConfig, TaskConfigTpl};
 
@@ -22,17 +22,78 @@ pub struct TaskInfo {
 pub enum TaskDefInfo {
     SourceDef {
         outputs: HashMap<String, Vec<TypeId>>,
-        build_source: fn(TaskConfig) -> Pin<Box<dyn Future<Output = Result<Box<dyn Source>, String>> + Send>>,
+        build_source:
+            fn(TaskConfig) -> Pin<Box<dyn Future<Output = Result<Box<dyn Source>, String>> + Send>>,
     },
     SinkDef {
         inputs: HashMap<String, Vec<TypeId>>,
-        build_sink: fn(TaskConfig) -> Pin<Box<dyn Future<Output = Result<Box<dyn Sink>, String>> + Send>>,
+        build_sink:
+            fn(TaskConfig) -> Pin<Box<dyn Future<Output = Result<Box<dyn Sink>, String>> + Send>>,
     },
     OperatorDef {
         inputs: HashMap<String, Vec<TypeId>>,
         outputs: HashMap<String, Vec<TypeId>>,
-        build_operator: fn(TaskConfig) -> Pin<Box<dyn Future<Output = Result<Box<dyn Operator>, String>> + Send>>,
+        build_operator: fn(
+            TaskConfig,
+        ) -> Pin<
+            Box<dyn Future<Output = Result<Box<dyn Operator>, String>> + Send>,
+        >,
     },
+}
+
+impl TaskDefInfo {
+    /// Retrieve a cloned `Vec` of all output names, which is empty in the event this is a Sink.
+    pub fn all_output_names(&self) -> Vec<String> {
+        match self {
+            Self::SourceDef {
+                outputs,
+                build_source: _,
+            } => outputs.keys().map(|name| name.clone()).collect(),
+            Self::OperatorDef {
+                inputs: _,
+                outputs,
+                build_operator: _,
+            } => outputs.keys().map(|name| name.clone()).collect(),
+            _ => vec![],
+        }
+    }
+
+    /// Retrieve a cloned `Vec` of all input names, which is empty in the event this is a Source.
+    pub fn all_input_names(&self) -> Vec<String> {
+        match self {
+            Self::OperatorDef {
+                inputs,
+                outputs: _,
+                build_operator: _,
+            } => inputs.keys().map(|name| name.clone()).collect(),
+            Self::SinkDef {
+                inputs,
+                build_sink: _,
+            } => inputs.keys().map(|name| name.clone()).collect(),
+            _ => vec![],
+        }
+    }
+
+    /// Retrieves the inputs of a given TaskInfo for a conn_name in it. If the conn_name doesn't exist, or if the
+    /// TaskInfo doesn't have inputs (for example, it's a Source), then None is returned. Otherwise, the input type
+    /// vector is copied and returned.
+    pub fn get_inputs_for(&self, conn_name: &str) -> Option<Vec<TypeId>> {
+        match &self {
+            TaskDefInfo::SourceDef { .. } => None,
+            TaskDefInfo::OperatorDef { inputs, .. } => inputs.get(conn_name).cloned(),
+            TaskDefInfo::SinkDef { inputs, .. } => inputs.get(conn_name).cloned(),
+        }
+    }
+    /// Retrieves the outputs of a given TaskInfo for a conn_name in it. If the conn_name doesn't exist, or if the
+    /// TaskInfo doesn't have outputs (for example, it's a Sink), then None is returned. Otherwise, the output type
+    /// vector is copied and returned.
+    pub fn get_outputs_for(&self, conn_name: &str) -> Option<Vec<TypeId>> {
+        match &self {
+            TaskDefInfo::SourceDef { outputs, .. } => outputs.get(conn_name).cloned(),
+            TaskDefInfo::OperatorDef { outputs, .. } => outputs.get(conn_name).cloned(),
+            TaskDefInfo::SinkDef { .. } => None,
+        }
+    }
 }
 
 /// A registry of TaskDefs that is used by the muetl runtime when instantiating Tasks from a Flow.

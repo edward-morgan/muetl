@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::{any::TypeId, collections::HashMap, fmt::Display, hash::Hash, sync::Arc};
+use std::{collections::HashMap, fmt::Display, hash::Hash, sync::Arc};
 
 use crate::{
-    registry::{Registry, TaskDefInfo, TaskInfo},
+    registry::{Registry, TaskInfo},
     runtime::{connection::Connection, NegotiatedType},
     task_defs::ConfigValue,
 };
@@ -139,6 +139,13 @@ impl Flow {
                 )]);
             }
         }
+
+        // Ensure that each Edge connects to known inputs/outputs. If there are any missing Edges then
+        // return an error here.
+        if let Err(errs) = self.validate_edges(reg.clone()) {
+            return Err(errs);
+        }
+
         // 2. Group edges by their `from` NodeRef
         let mut outgoing_edges: HashMap<NodeRef, Vec<&mut Edge>> = HashMap::new();
         for edge in &self.edges {
@@ -155,14 +162,18 @@ impl Flow {
             let source = self.nodes.get(&edge_source.node_id).unwrap();
             // unwrap() is okay here since we just set the info for all nodes, or else returned an error
             let task_info = source.info.as_ref().unwrap();
-            if let Some(mut negotiated_types) = outputs_of(task_info, &edge_source.conn_name) {
+            if let Some(mut negotiated_types) =
+                task_info.info.get_outputs_for(&edge_source.conn_name)
+            {
                 // For each edge, get the supported types of the input and ensure that at least one is available
                 for edge in &edges {
                     // unwrap() is okay here as this has already been parsed/validated
                     let dest = self.nodes.get(&edge.to.node_id).unwrap();
                     // unwrap() is okay here since we just set the info for all nodes, or else returned an error
                     let dest_info = dest.info.as_ref().unwrap();
-                    if let Some(supported_input_types) = inputs_of(&dest_info, &edge.to.conn_name) {
+                    if let Some(supported_input_types) =
+                        dest_info.info.get_inputs_for(&edge.to.conn_name)
+                    {
                         // For each input, constrain the set of negotiated types against anything the input type can support
                         negotiated_types = supported_input_types
                             .iter()
@@ -203,28 +214,68 @@ impl Flow {
             Ok(())
         }
     }
+
+    /// Validates that each edge in this `Flow` references a connection (input or output)
+    /// that exists on the `TaskInfo` that the `Registry` contains. For a given Flow, all
+    /// missing connection names are returned in the `ValidationResult` instead of short-
+    /// circuiting on the first missing one.
+    fn validate_edges(&self, reg: Arc<Registry>) -> ValidationResult {
+        let mut validation_errors = vec![];
+        for edge in self.edges.iter() {
+            if let Err(e) = self.validate_node_ref(reg.clone(), &edge.from, true) {
+                validation_errors.push(e);
+            }
+            if let Err(e) = self.validate_node_ref(reg.clone(), &edge.to, false) {
+                validation_errors.push(e);
+            }
+        }
+
+        if validation_errors.is_empty() {
+            Ok(())
+        } else {
+            Err(validation_errors)
+        }
+    }
+
+    fn validate_node_ref(
+        &self,
+        reg: Arc<Registry>,
+        nr: &NodeRef,
+        is_from: bool,
+    ) -> Result<(), String> {
+        if let Some(node) = self.nodes.get(&nr.node_id) {
+            if let Some(task_def) = reg.def_for(&node.task_id) {
+                if is_from {
+                    if let Some(_types) = task_def.info.get_outputs_for(&nr.conn_name) {
+                        Ok(())
+                    } else {
+                        Err(format!(
+                            "node {} with task_id {} does not have an output named {} (available: {:?})",
+                            nr.node_id, node.task_id, nr.conn_name, task_def.info.all_output_names()
+                        ))
+                    }
+                } else {
+                    if let Some(_types) = task_def.info.get_inputs_for(&nr.conn_name) {
+                        Ok(())
+                    } else {
+                        Err(format!(
+                            "node {} with task_id {} does not have an input named {} (available: {:?})",
+                            nr.node_id, node.task_id, nr.conn_name, task_def.info.all_input_names()
+                        ))
+                    }
+                }
+            } else {
+                Err(format!(
+                    "node {} with task_id {} not found in registry",
+                    nr.node_id, node.task_id
+                ))
+            }
+        } else {
+            Err(format!("node {} not found in flow", nr.node_id))
+        }
+    }
 }
 
-/// Retrieves the outputs of a given TaskInfo for a conn_name in it. If the conn_name doesn't exist, or if the
-/// TaskInfo doesn't have outputs (for example, it's a Sink), then None is returned. Otherwise, the output type
-/// vector is copied and returned.
-fn outputs_of(task_info: &TaskInfo, conn_name: &String) -> Option<Vec<TypeId>> {
-    match &task_info.info {
-        TaskDefInfo::SourceDef { outputs, .. } => outputs.get(conn_name).cloned(),
-        TaskDefInfo::OperatorDef { outputs, .. } => outputs.get(conn_name).cloned(),
-        TaskDefInfo::SinkDef { .. } => None,
-    }
-}
-/// Retrieves the inputs of a given TaskInfo for a conn_name in it. If the conn_name doesn't exist, or if the
-/// TaskInfo doesn't have inputs (for example, it's a Source), then None is returned. Otherwise, the input type
-/// vector is copied and returned.
-fn inputs_of(task_info: &TaskInfo, conn_name: &String) -> Option<Vec<TypeId>> {
-    match &task_info.info {
-        TaskDefInfo::SinkDef { inputs, .. } => inputs.get(conn_name).cloned(),
-        TaskDefInfo::OperatorDef { inputs, .. } => inputs.get(conn_name).cloned(),
-        TaskDefInfo::SourceDef { .. } => None,
-    }
-}
 #[derive(Debug, Clone)]
 pub struct Node {
     /// The internal identifier of this Node as it relates to Edges in the Flow.
@@ -313,6 +364,10 @@ impl Edge {
 
 #[cfg(test)]
 mod tests {
+    use crate::registry::TaskDefInfo;
+    use crate::task_defs::TaskConfig;
+    use std::any::TypeId;
+
     use super::*;
 
     #[test]
@@ -513,5 +568,122 @@ mod tests {
         let f = Flow::parse_structure(raw_flow);
         println!("Invalid RawFlow from JSON result: {:?}", f);
         assert!(f.is_err());
+    }
+
+    #[test]
+    fn test_flow_validates_misnamed_inputs() {
+        let mut reg = Registry::new();
+        reg.add_def(TaskInfo {
+            task_id: "sender".to_string(),
+            config_tpl: None,
+            info: TaskDefInfo::SourceDef {
+                outputs: HashMap::from_iter(vec![(
+                    "output".to_string(),
+                    vec![TypeId::of::<String>()],
+                )]),
+                build_source: |_: TaskConfig| Box::pin(async { Err(format!("unimplemented")) }),
+            },
+        });
+        reg.add_def(TaskInfo {
+            task_id: "receiver".to_string(),
+            config_tpl: None,
+            info: TaskDefInfo::OperatorDef {
+                inputs: HashMap::from_iter(vec![(
+                    "input".to_string(),
+                    vec![TypeId::of::<i8>(), TypeId::of::<String>()],
+                )]),
+                outputs: HashMap::from_iter(vec![]),
+                build_operator: |_: TaskConfig| Box::pin(async { Err(format!("unimplemented")) }),
+            },
+        });
+        let raw_flow = RawFlow {
+            id: "test-flow".to_string(),
+            nodes: vec![
+                RawNode {
+                    node_id: "sender".to_string(),
+                    task_id: "sender".to_string(),
+                    configuration: HashMap::default(),
+                },
+                RawNode {
+                    node_id: "receiver".to_string(),
+                    task_id: "receiver".to_string(),
+                    configuration: HashMap::default(),
+                },
+            ],
+            edges: vec![RawEdge {
+                from: NodeRef {
+                    node_id: "sender".to_string(),
+                    conn_name: "output".to_string(),
+                },
+                to: NodeRef {
+                    node_id: "receiver".to_string(),
+                    conn_name: "misnamed-input".to_string(),
+                },
+            }],
+        };
+        let f = Flow::parse_from(raw_flow, Arc::new(reg));
+        assert!(
+            f.is_err(),
+            "expected a misnamed input connection to produce an error but got {:?}",
+            f
+        )
+    }
+    #[test]
+    fn test_flow_validates_misnamed_outputs() {
+        let mut reg = Registry::new();
+        reg.add_def(TaskInfo {
+            task_id: "sender".to_string(),
+            config_tpl: None,
+            info: TaskDefInfo::SourceDef {
+                outputs: HashMap::from_iter(vec![(
+                    "output".to_string(),
+                    vec![TypeId::of::<String>()],
+                )]),
+                build_source: |_: TaskConfig| Box::pin(async { Err(format!("unimplemented")) }),
+            },
+        });
+        reg.add_def(TaskInfo {
+            task_id: "receiver".to_string(),
+            config_tpl: None,
+            info: TaskDefInfo::OperatorDef {
+                inputs: HashMap::from_iter(vec![(
+                    "input".to_string(),
+                    vec![TypeId::of::<i8>(), TypeId::of::<String>()],
+                )]),
+                outputs: HashMap::from_iter(vec![]),
+                build_operator: |_: TaskConfig| Box::pin(async { Err(format!("unimplemented")) }),
+            },
+        });
+        let raw_flow = RawFlow {
+            id: "test-flow".to_string(),
+            nodes: vec![
+                RawNode {
+                    node_id: "sender".to_string(),
+                    task_id: "sender".to_string(),
+                    configuration: HashMap::default(),
+                },
+                RawNode {
+                    node_id: "receiver".to_string(),
+                    task_id: "receiver".to_string(),
+                    configuration: HashMap::default(),
+                },
+            ],
+            edges: vec![RawEdge {
+                from: NodeRef {
+                    node_id: "sender".to_string(),
+                    conn_name: "misnamed-output".to_string(),
+                },
+                to: NodeRef {
+                    node_id: "receiver".to_string(),
+                    conn_name: "input".to_string(),
+                },
+            }],
+        };
+        let f = Flow::parse_from(raw_flow, Arc::new(reg));
+        assert!(
+            f.is_err(),
+            "expected a misnamed output connection to produce an error but got {:?}",
+            f
+        )
     }
 }
