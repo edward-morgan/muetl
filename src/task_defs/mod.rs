@@ -58,30 +58,48 @@ use crate::messages::{event::Event, Status};
 /// ```ignore
 /// impl_operator_handler!(Adder, task_id = "adder", inputs("input" => i64), outputs("output" => i64));
 /// ```
+///
+/// To run custom asynchronous cleanup before shutdown, name an inherent async
+/// method with the optional `prepare_shutdown` parameter:
+/// ```ignore
+/// impl Adder {
+///     async fn flush_on_shutdown(&mut self, ctx: &MuetlContext) {
+///         // Flush buffered state using ctx.
+///     }
+/// }
+///
+/// impl_operator_handler!(
+///     Adder,
+///     task_id = "adder",
+///     inputs("input" => i64),
+///     outputs("output" => i64),
+///     prepare_shutdown = flush_on_shutdown,
+/// );
+/// ```
 #[macro_export]
 macro_rules! impl_operator_handler {
     // New pattern with task_id for self-describing registration
-    ($ty:ty, task_id = $task_id:literal, inputs($($inputs:tt)*), outputs($($outputs:tt)*) $(,)?) => {
+    ($ty:ty, task_id = $task_id:literal, inputs($($inputs:tt)*), outputs($($outputs:tt)*) $(, prepare_shutdown = $prepare_shutdown:ident)? $(,)?) => {
         // Parse and expand inputs/outputs, then delegate to implementation
-        impl_operator_handler!(@expand_and_impl $ty, $task_id, inputs($($inputs)*), outputs($($outputs)*));
+        impl_operator_handler!(@expand_and_impl $ty, $task_id, [$($prepare_shutdown)?], inputs($($inputs)*), outputs($($outputs)*));
     };
 
     // Expand inputs and outputs, then generate implementations
-    (@expand_and_impl $ty:ty, $task_id:literal, inputs($($inputs:tt)*), outputs($($outputs:tt)*)) => {
+    (@expand_and_impl $ty:ty, $task_id:literal, [$($prepare_shutdown:ident)?], inputs($($inputs:tt)*), outputs($($outputs:tt)*)) => {
         // First, expand the inputs and outputs syntax
-        impl_operator_handler!(@impl_with_expanded $ty, $task_id,
+        impl_operator_handler!(@impl_with_expanded $ty, $task_id, [$($prepare_shutdown)?],
             inputs_expanded[], inputs_to_parse[$($inputs)*],
             outputs_expanded[], outputs_to_parse[$($outputs)*]
         );
     };
 
     // Parse inputs: handle "conn" => [Type1, Type2, ...]
-    (@impl_with_expanded $ty:ty, $task_id:literal,
+    (@impl_with_expanded $ty:ty, $task_id:literal, [$($prepare_shutdown:ident)?],
         inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
         inputs_to_parse[$conn:literal => [$($types:ty),+ $(,)?] $(, $($rest_in:tt)*)?],
         outputs_expanded[$($out_exp:tt)*], outputs_to_parse[$($rest_out:tt)*]
     ) => {
-        impl_operator_handler!(@impl_with_expanded $ty, $task_id,
+        impl_operator_handler!(@impl_with_expanded $ty, $task_id, [$($prepare_shutdown)?],
             inputs_expanded[$($in_conn_exp => $input_ty_exp,)* $($conn => $types),*],
             inputs_to_parse[$($($rest_in)*)?],
             outputs_expanded[$($out_exp)*], outputs_to_parse[$($rest_out)*]
@@ -89,12 +107,12 @@ macro_rules! impl_operator_handler {
     };
 
     // Parse inputs: handle "conn" => Type
-    (@impl_with_expanded $ty:ty, $task_id:literal,
+    (@impl_with_expanded $ty:ty, $task_id:literal, [$($prepare_shutdown:ident)?],
         inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
         inputs_to_parse[$conn:literal => $single_type:ty $(, $($rest_in:tt)*)?],
         outputs_expanded[$($out_exp:tt)*], outputs_to_parse[$($rest_out:tt)*]
     ) => {
-        impl_operator_handler!(@impl_with_expanded $ty, $task_id,
+        impl_operator_handler!(@impl_with_expanded $ty, $task_id, [$($prepare_shutdown)?],
             inputs_expanded[$($in_conn_exp => $input_ty_exp,)* $conn => $single_type],
             inputs_to_parse[$($($rest_in)*)?],
             outputs_expanded[$($out_exp)*], outputs_to_parse[$($rest_out)*]
@@ -102,13 +120,13 @@ macro_rules! impl_operator_handler {
     };
 
     // Done parsing inputs, now parse outputs: handle "conn" => [Type1, Type2, ...]
-    (@impl_with_expanded $ty:ty, $task_id:literal,
+    (@impl_with_expanded $ty:ty, $task_id:literal, [$($prepare_shutdown:ident)?],
         inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
         inputs_to_parse[],
         outputs_expanded[$($out_conn_exp:literal => $output_ty_exp:ty),*],
         outputs_to_parse[$conn:literal => [$($types:ty),+ $(,)?] $(, $($rest:tt)*)?]
     ) => {
-        impl_operator_handler!(@impl_with_expanded $ty, $task_id,
+        impl_operator_handler!(@impl_with_expanded $ty, $task_id, [$($prepare_shutdown)?],
             inputs_expanded[$($in_conn_exp => $input_ty_exp),*],
             inputs_to_parse[],
             outputs_expanded[$($out_conn_exp => $output_ty_exp,)* $($conn => $types),*],
@@ -117,13 +135,13 @@ macro_rules! impl_operator_handler {
     };
 
     // Done parsing inputs, now parse outputs: handle "conn" => Type
-    (@impl_with_expanded $ty:ty, $task_id:literal,
+    (@impl_with_expanded $ty:ty, $task_id:literal, [$($prepare_shutdown:ident)?],
         inputs_expanded[$($in_conn_exp:literal => $input_ty_exp:ty),*],
         inputs_to_parse[],
         outputs_expanded[$($out_conn_exp:literal => $output_ty_exp:ty),*],
         outputs_to_parse[$conn:literal => $single_type:ty $(, $($rest:tt)*)?]
     ) => {
-        impl_operator_handler!(@impl_with_expanded $ty, $task_id,
+        impl_operator_handler!(@impl_with_expanded $ty, $task_id, [$($prepare_shutdown)?],
             inputs_expanded[$($in_conn_exp => $input_ty_exp),*],
             inputs_to_parse[],
             outputs_expanded[$($out_conn_exp => $output_ty_exp,)* $conn => $single_type],
@@ -132,14 +150,14 @@ macro_rules! impl_operator_handler {
     };
 
     // All parsing complete, generate the implementations
-    (@impl_with_expanded $ty:ty, $task_id:literal,
+    (@impl_with_expanded $ty:ty, $task_id:literal, [$($prepare_shutdown:ident)?],
         inputs_expanded[$($in_conn:literal => $input_ty:ty),*],
         inputs_to_parse[],
         outputs_expanded[$($out_conn:literal => $output_ty:ty),*],
         outputs_to_parse[]
     ) => {
         // Generate the Operator trait implementation
-        impl_operator_handler!(@impl_trait $ty, $($in_conn => $input_ty),*);
+        impl_operator_handler!(@impl_trait $ty, [$($prepare_shutdown)?], $($in_conn => $input_ty),*);
 
         // Generate the SelfDescribing implementation
         impl $crate::registry::SelfDescribing for $ty {
@@ -171,13 +189,33 @@ macro_rules! impl_operator_handler {
         }
     };
 
+    // Old pattern for backward compatibility, with a shutdown hook
+    ($ty:ty, $($conn:literal => $input_ty:ty),* , prepare_shutdown = $prepare_shutdown:ident $(,)?) => {
+        impl_operator_handler!(@impl_trait $ty, [$prepare_shutdown], $($conn => $input_ty),*);
+    };
+
     // Old pattern for backward compatibility
     ($ty:ty, $($conn:literal => $input_ty:ty),* $(,)?) => {
-        impl_operator_handler!(@impl_trait $ty, $($conn => $input_ty),*);
+        impl_operator_handler!(@impl_trait $ty, [], $($conn => $input_ty),*);
+    };
+
+    (@impl_trait $ty:ty, [], $($conn:literal => $input_ty:ty),*) => {
+        impl_operator_handler!(@impl_trait_with_methods $ty, [], $($conn => $input_ty),*);
+    };
+
+    (@impl_trait $ty:ty, [$prepare_shutdown:ident], $($conn:literal => $input_ty:ty),*) => {
+        impl_operator_handler!(@impl_trait_with_methods $ty, [
+            async fn prepare_shutdown(
+                &mut self,
+                ctx: &$crate::task_defs::MuetlContext,
+            ) {
+                self.$prepare_shutdown(ctx).await;
+            }
+        ], $($conn => $input_ty),*);
     };
 
     // Internal rule to implement the Operator trait
-    (@impl_trait $ty:ty, $($conn:literal => $input_ty:ty),*) => {
+    (@impl_trait_with_methods $ty:ty, [$($methods:item)*], $($conn:literal => $input_ty:ty),*) => {
         #[async_trait::async_trait]
         impl $crate::task_defs::operator::Operator for $ty {
             async fn handle_event_for_conn(
@@ -216,6 +254,8 @@ macro_rules! impl_operator_handler {
                     );
                 }
             }
+
+            $($methods)*
         }
     };
 }
@@ -259,50 +299,78 @@ macro_rules! impl_operator_handler {
 /// ```ignore
 /// impl_sink_handler!(MySink, task_id = "my_sink", "input" => String);
 /// ```
+///
+/// To run custom asynchronous cleanup before shutdown, name an inherent async
+/// method after the inputs:
+/// ```ignore
+/// impl MySink {
+///     async fn flush_on_shutdown(&mut self, ctx: &MuetlSinkContext) {
+///         // Flush buffered state using ctx.
+///     }
+/// }
+///
+/// impl_sink_handler!(
+///     MySink,
+///     task_id = "my_sink",
+///     "input" => String,
+///     prepare_shutdown = flush_on_shutdown,
+/// );
+/// ```
 #[macro_export]
 macro_rules! impl_sink_handler {
     // New pattern with task_id for self-describing registration
     ($ty:ty, task_id = $task_id:literal, $($inputs:tt)*) => {
         // Parse and expand inputs, then delegate to implementation
-        impl_sink_handler!(@expand_and_impl $ty, $task_id, inputs($($inputs)*));
+        impl_sink_handler!(@expand_and_impl $ty, $task_id, [], inputs($($inputs)*));
     };
 
     // Expand inputs, then generate implementations
-    (@expand_and_impl $ty:ty, $task_id:literal, inputs($($inputs:tt)*)) => {
-        impl_sink_handler!(@impl_with_expanded $ty, $task_id,
+    (@expand_and_impl $ty:ty, $task_id:literal, [$($prepare_shutdown:ident)?], inputs($($inputs:tt)*)) => {
+        impl_sink_handler!(@impl_with_expanded $ty, $task_id, [$($prepare_shutdown)?],
             inputs_expanded[], inputs_to_parse[$($inputs)*]
         );
     };
 
     // Parse inputs: handle "conn" => [Type1, Type2, ...]
-    (@impl_with_expanded $ty:ty, $task_id:literal,
+    (@impl_with_expanded $ty:ty, $task_id:literal, [$($prepare_shutdown:ident)?],
         inputs_expanded[$($conn_exp:literal => $input_ty_exp:ty),*],
         inputs_to_parse[$conn:literal => [$($types:ty),+ $(,)?] $(, $($rest:tt)*)?]
     ) => {
-        impl_sink_handler!(@impl_with_expanded $ty, $task_id,
+        impl_sink_handler!(@impl_with_expanded $ty, $task_id, [$($prepare_shutdown)?],
             inputs_expanded[$($conn_exp => $input_ty_exp,)* $($conn => $types),*],
             inputs_to_parse[$($($rest)*)?]
         );
     };
 
     // Parse inputs: handle "conn" => Type
-    (@impl_with_expanded $ty:ty, $task_id:literal,
+    (@impl_with_expanded $ty:ty, $task_id:literal, [$($prepare_shutdown:ident)?],
         inputs_expanded[$($conn_exp:literal => $input_ty_exp:ty),*],
         inputs_to_parse[$conn:literal => $single_type:ty $(, $($rest:tt)*)?]
     ) => {
-        impl_sink_handler!(@impl_with_expanded $ty, $task_id,
+        impl_sink_handler!(@impl_with_expanded $ty, $task_id, [$($prepare_shutdown)?],
             inputs_expanded[$($conn_exp => $input_ty_exp,)* $conn => $single_type],
             inputs_to_parse[$($($rest)*)?]
         );
     };
 
+    // Parse the optional shutdown hook after all inputs.
+    (@impl_with_expanded $ty:ty, $task_id:literal, [],
+        inputs_expanded[$($conn_exp:literal => $input_ty_exp:ty),*],
+        inputs_to_parse[prepare_shutdown = $prepare_shutdown:ident $(,)?]
+    ) => {
+        impl_sink_handler!(@impl_with_expanded $ty, $task_id, [$prepare_shutdown],
+            inputs_expanded[$($conn_exp => $input_ty_exp),*],
+            inputs_to_parse[]
+        );
+    };
+
     // All parsing complete, generate the implementations
-    (@impl_with_expanded $ty:ty, $task_id:literal,
+    (@impl_with_expanded $ty:ty, $task_id:literal, [$($prepare_shutdown:ident)?],
         inputs_expanded[$($conn:literal => $input_ty:ty),*],
         inputs_to_parse[]
     ) => {
         // Generate the Sink trait implementation
-        impl_sink_handler!(@impl_trait $ty, $($conn => $input_ty),*);
+        impl_sink_handler!(@impl_trait $ty, [$($prepare_shutdown)?], $($conn => $input_ty),*);
 
         // Generate the SelfDescribing implementation
         impl $crate::registry::SelfDescribing for $ty {
@@ -326,13 +394,33 @@ macro_rules! impl_sink_handler {
         }
     };
 
+    // Old pattern for backward compatibility, with a shutdown hook
+    ($ty:ty, $($conn:literal => $input_ty:ty),* , prepare_shutdown = $prepare_shutdown:ident $(,)?) => {
+        impl_sink_handler!(@impl_trait $ty, [$prepare_shutdown], $($conn => $input_ty),*);
+    };
+
     // Old pattern for backward compatibility
     ($ty:ty, $($conn:literal => $input_ty:ty),* $(,)?) => {
-        impl_sink_handler!(@impl_trait $ty, $($conn => $input_ty),*);
+        impl_sink_handler!(@impl_trait $ty, [], $($conn => $input_ty),*);
+    };
+
+    (@impl_trait $ty:ty, [], $($conn:literal => $input_ty:ty),*) => {
+        impl_sink_handler!(@impl_trait_with_methods $ty, [], $($conn => $input_ty),*);
+    };
+
+    (@impl_trait $ty:ty, [$prepare_shutdown:ident], $($conn:literal => $input_ty:ty),*) => {
+        impl_sink_handler!(@impl_trait_with_methods $ty, [
+            async fn prepare_shutdown(
+                &mut self,
+                ctx: &$crate::task_defs::MuetlSinkContext,
+            ) {
+                self.$prepare_shutdown(ctx).await;
+            }
+        ], $($conn => $input_ty),*);
     };
 
     // Internal rule to implement the Sink trait
-    (@impl_trait $ty:ty, $($conn:literal => $input_ty:ty),*) => {
+    (@impl_trait_with_methods $ty:ty, [$($methods:item)*], $($conn:literal => $input_ty:ty),*) => {
         #[async_trait::async_trait]
         impl $crate::task_defs::sink::Sink for $ty {
             async fn handle_event_for_conn(
@@ -370,6 +458,8 @@ macro_rules! impl_sink_handler {
                     );
                 }
             }
+
+            $($methods)*
         }
     };
 }
@@ -519,4 +609,120 @@ pub struct MuetlSinkContext {
     pub event_name: String,
     /// Headers from the current event being processed.
     pub event_headers: HashMap<String, String>,
+}
+
+#[cfg(test)]
+mod handler_macro_tests {
+    use super::*;
+    use crate::task_defs::{operator::Operator, sink::Sink};
+
+    struct ShutdownOperator {
+        shutdown_called: bool,
+    }
+
+    impl ShutdownOperator {
+        async fn new(_config: TaskConfig) -> Result<Box<dyn Operator>, String> {
+            Ok(Box::new(Self {
+                shutdown_called: false,
+            }))
+        }
+
+        async fn flush_on_shutdown(&mut self, ctx: &MuetlContext) {
+            assert_eq!(ctx.event_name.as_deref(), Some("operator-shutdown"));
+            self.shutdown_called = true;
+        }
+    }
+
+    impl TaskDef for ShutdownOperator {}
+    impl ConfigTemplate for ShutdownOperator {}
+
+    impl Input<()> for ShutdownOperator {
+        const conn_name: &'static str = "input";
+
+        async fn handle(&mut self, _ctx: &MuetlContext, _input: &()) {}
+    }
+
+    impl_operator_handler!(
+        ShutdownOperator,
+        task_id = "shutdown-operator",
+        inputs("input" => ()),
+        outputs("output" => ()),
+        prepare_shutdown = flush_on_shutdown,
+    );
+
+    struct ShutdownSink {
+        shutdown_called: bool,
+    }
+
+    impl ShutdownSink {
+        async fn new(_config: TaskConfig) -> Result<Box<dyn Sink>, String> {
+            Ok(Box::new(Self {
+                shutdown_called: false,
+            }))
+        }
+
+        async fn flush_on_shutdown(&mut self, ctx: &MuetlSinkContext) {
+            assert_eq!(ctx.event_name, "sink-shutdown");
+            self.shutdown_called = true;
+        }
+    }
+
+    impl TaskDef for ShutdownSink {}
+    impl ConfigTemplate for ShutdownSink {}
+
+    impl SinkInput<()> for ShutdownSink {
+        const conn_name: &'static str = "input";
+
+        async fn handle(&mut self, _ctx: &MuetlSinkContext, _input: &()) {}
+    }
+
+    impl SinkInput<i32> for ShutdownSink {
+        const conn_name: &'static str = "input";
+
+        async fn handle(&mut self, _ctx: &MuetlSinkContext, _input: &i32) {}
+    }
+
+    impl_sink_handler!(
+        ShutdownSink,
+        task_id = "shutdown-sink",
+        "input" => [(), i32],
+        prepare_shutdown = flush_on_shutdown,
+    );
+
+    #[tokio::test]
+    async fn operator_macro_delegates_prepare_shutdown() {
+        let (results, _results_rx) = tokio::sync::mpsc::channel(1);
+        let (status, _status_rx) = tokio::sync::mpsc::channel(1);
+        let ctx = MuetlContext {
+            current_subscribers: HashMap::new(),
+            results,
+            status,
+            event_name: Some("operator-shutdown".to_string()),
+            event_headers: HashMap::new(),
+        };
+        let mut operator = ShutdownOperator {
+            shutdown_called: false,
+        };
+
+        Operator::prepare_shutdown(&mut operator, &ctx).await;
+
+        assert!(operator.shutdown_called);
+    }
+
+    #[tokio::test]
+    async fn sink_macro_delegates_prepare_shutdown() {
+        let (status, _status_rx) = tokio::sync::mpsc::channel(1);
+        let ctx = MuetlSinkContext {
+            status,
+            event_name: "sink-shutdown".to_string(),
+            event_headers: HashMap::new(),
+        };
+        let mut sink = ShutdownSink {
+            shutdown_called: false,
+        };
+
+        Sink::prepare_shutdown(&mut sink, &ctx).await;
+
+        assert!(sink.shutdown_called);
+    }
 }
