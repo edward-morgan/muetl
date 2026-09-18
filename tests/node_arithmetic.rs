@@ -10,6 +10,7 @@ use std::{any::TypeId, collections::HashMap, sync::Arc};
 use kameo::actor::{ActorRef, Spawn};
 use muetl::{
     flow::{Flow, NodeRef, RawEdge, RawFlow, RawNode},
+    logging,
     messages::GetRuntimeInfo,
     prelude::Status,
     registry::{Registry, TaskDefInfo, TaskInfo},
@@ -18,6 +19,8 @@ use muetl::{
 };
 
 use common::task_defs::{Adder, Multiplier, NumberSource, ResultCollector};
+
+use crate::common::task_defs::Passer;
 
 /// Helper to create a registry with all our test task definitions.
 fn create_test_registry() -> Registry {
@@ -74,6 +77,20 @@ fn create_test_registry() -> Registry {
         info: TaskDefInfo::SinkDef {
             inputs: collector_inputs,
             build_sink: |config| Box::pin(ResultCollector::new(config)),
+        },
+    });
+
+    let mut passer_inputs = HashMap::new();
+    passer_inputs.insert("incoming_data".to_string(), vec![TypeId::of::<i64>()]);
+    let mut passer_outputs = HashMap::new();
+    passer_outputs.insert("outgoing_data".to_string(), vec![TypeId::of::<i64>()]);
+    registry.add_def(TaskInfo {
+        task_id: "passer".to_string(),
+        config_tpl: None,
+        info: TaskDefInfo::OperatorDef {
+            inputs: passer_inputs,
+            outputs: passer_outputs,
+            build_operator: |config| Box::pin(Passer::new(config)),
         },
     });
 
@@ -171,8 +188,9 @@ async fn test_basic_node_passthrough() {
     assert_eq!(
         results.len(),
         5,
-        "Expected 5 results, got {}",
-        results.len()
+        "Expected 5 results, got {}: {:?}",
+        results.len(),
+        results,
     );
 
     let mut sorted_results = results.clone();
@@ -666,6 +684,97 @@ async fn test_mixed_pipeline() {
         vec![30, 33, 36, 39, 42],
         "Expected transformed [30,33,36,39,42], got {:?}",
         sorted_transformed
+    );
+    all_nodes_complete(&flow, monitor_ref.clone()).await
+}
+
+#[tokio::test]
+async fn test_multiple_incoming_conn_names() {
+    ResultCollector::clear_all();
+    logging::init();
+    let registry = create_test_registry();
+
+    // NumberSource config: emit 5 numbers (0..5)
+    let mut src_config = HashMap::new();
+    src_config.insert("count".to_string(), ConfigValue::Num(5));
+
+    // Adder config: add 5
+    let mut adder_config = HashMap::new();
+    adder_config.insert("addend".to_string(), ConfigValue::Num(5));
+
+    // ResultCollector config
+    let mut collector_config = HashMap::new();
+    collector_config.insert(
+        "name".to_string(),
+        ConfigValue::Str("multiple_incoming_conn_names".to_string()),
+    );
+
+    let raw_flow = RawFlow {
+        id: "multiple_incoming_conn_names".to_string(),
+        nodes: vec![
+            RawNode {
+                node_id: "source".to_string(),
+                task_id: "number_source".to_string(),
+                configuration: src_config,
+            },
+            RawNode {
+                node_id: "adder".to_string(),
+                task_id: "adder".to_string(),
+                configuration: adder_config,
+            },
+            RawNode {
+                node_id: "passer".to_string(),
+                task_id: "passer".to_string(),
+                configuration: HashMap::new(),
+            },
+            RawNode {
+                node_id: "collector".to_string(),
+                task_id: "result_collector".to_string(),
+                configuration: collector_config,
+            },
+        ],
+        edges: vec![
+            RawEdge {
+                from: NodeRef::new("source".to_string(), "output".to_string()),
+                to: NodeRef::new("adder".to_string(), "input".to_string()),
+            },
+            RawEdge {
+                from: NodeRef::new("source".to_string(), "output".to_string()),
+                to: NodeRef::new("passer".to_string(), "incoming_data".to_string()),
+            },
+            RawEdge {
+                from: NodeRef::new("adder".to_string(), "output".to_string()),
+                to: NodeRef::new("collector".to_string(), "input".to_string()),
+            },
+            RawEdge {
+                from: NodeRef::new("passer".to_string(), "outgoing_data".to_string()),
+                to: NodeRef::new("collector".to_string(), "input".to_string()),
+            },
+        ],
+    };
+
+    let flow = Flow::parse_from(raw_flow, Arc::new(registry)).unwrap();
+    let monitor_ref: ActorRef<Monitor> = Spawn::spawn(Monitor::new());
+    let root = Root::new(flow.clone(), monitor_ref.clone());
+    let root_ref: ActorRef<Root> = Spawn::spawn(root);
+    root_ref.wait_for_shutdown().await;
+
+    let results = ResultCollector::get_results("multiple_incoming_conn_names");
+    assert_eq!(
+        results.len(),
+        10,
+        "Expected 10 results, got {}: {:?}",
+        results.len(),
+        results
+    );
+
+    let mut sorted_results = results.clone();
+    sorted_results.sort();
+    assert_eq!(
+        sorted_results,
+        vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+        "Expected [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], got {:?}",
+        sorted_results
     );
     all_nodes_complete(&flow, monitor_ref.clone()).await
 }

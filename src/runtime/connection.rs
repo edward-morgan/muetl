@@ -1,5 +1,6 @@
 use kameo::prelude::*;
 use std::any::TypeId;
+use std::collections::hash_map::Entry;
 use std::collections::HashSet;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
@@ -40,10 +41,20 @@ type ChannelImpl = Arc<ActorRef<PubSub<EventMessage>>>;
 /// 1. The type reference that has been negotiated for this connection.
 /// 2. A reference to the actor that will handle the producer/consumer relationship
 /// between the Tasks, which preserves loose coupling.
+///
+/// Note that a `Connection` maps 1-1 to an `Edge` in a `Flow`. However, during the instantiation process of a
+/// `Flow` multiple `Connections` may be mapped to the same underlying `ChannelImpl` to improve performance by
+/// only requiring publishers to send `Event`s once.
 #[derive(Clone)]
 pub struct Connection {
-    /// An ID that uniquely represents this connection. Senders should use this when creating InternalEvents.
-    connection_key: ConnectionKey,
+    /// Multiple Connections may share the same key if they are published
+    /// to by the same Actor.
+    ///
+    /// The connection key is used by the runtime to abstract away the fact that multiple Edges may use a single underlying
+    /// channel to publish data. There are two uses for it:
+    /// 1. Determining how many places to publish an `InternalEvent`.
+    /// 2. Keying the `InternalEvent` such that subscribers know where it came from.
+    pub connection_key: ConnectionKey,
     /// The negotiated type of this connection.
     pub chan_type: Arc<NegotiatedType>,
     /// A channel to publish messages on.
@@ -57,13 +68,31 @@ pub struct Connection {
 pub(crate) type ConnectionKey = Uuid;
 
 impl Connection {
+    /// Create a brand-new `Connection` and create the underlying `PubSub` channel.
     pub fn new(tpe: NegotiatedType, sender_conn_name: String, receiver_conn_name: String) -> Self {
-        Self {
-            chan_ref: Arc::new(PubSub::<EventMessage>::spawn(PubSub::new(
+        Self::with_channel(
+            tpe,
+            Uuid::new_v4(),
+            sender_conn_name,
+            receiver_conn_name,
+            Arc::new(PubSub::<EventMessage>::spawn(PubSub::new(
                 kameo_actors::DeliveryStrategy::Guaranteed,
             ))),
+        )
+    }
+
+    /// Create a new `Connection` using an existing `PubSub` channel.
+    pub fn with_channel(
+        tpe: NegotiatedType,
+        connection_key: ConnectionKey,
+        sender_conn_name: String,
+        receiver_conn_name: String,
+        chan_ref: ChannelImpl,
+    ) -> Self {
+        Self {
+            chan_ref,
             chan_type: Arc::new(tpe),
-            connection_key: Uuid::new_v4(),
+            connection_key,
             sender_conn_name,
             receiver_conn_name,
         }
@@ -98,6 +127,8 @@ impl From<&Vec<Arc<Connection>>> for IncomingConnections {
 }
 
 impl IncomingConnections {
+    /// Given an `InternalEvent` that has been sent to an Actor owning these `IncomingConnections`, look at the
+    /// sender's `ConnectionKey` to determine to which input conn_name the message is intended for.
     pub fn conn_name_for(&self, ie: Arc<InternalEvent>) -> Result<String, RuntimeError> {
         if let Some(incoming_for_conn) = self.conns.get(&ie.sender_id) {
             Ok(incoming_for_conn.receiver_conn_name.clone())
@@ -183,23 +214,56 @@ impl IncomingConnection {
 
 /// The side of a `Connection` that is provided to producer Tasks (Sources and Operators).
 pub struct OutgoingConnections {
-    /// The mapping from output conn_name to OutgoingConnection for this Task.
-    conns: HashMap<String, Arc<OutgoingConnection>>,
+    /// The full mapping of OutgoingConnections for each conn_name. Returns the full set of Connections
+    /// instead of the subset of Connections that will be published to.
+    all_conns_by_outgoing_name: HashMap<String, Vec<Arc<OutgoingConnection>>>,
+    /// The smaller set of Connections that will be published to. This reflects the fact that many
+    /// Connections may share the same underlying channel.
+    publish_conns: HashMap<String, Vec<Arc<OutgoingConnection>>>,
 }
+
 impl From<&Vec<Arc<Connection>>> for OutgoingConnections {
     fn from(value: &Vec<Arc<Connection>>) -> Self {
-        let mut conns = HashMap::new();
-        value.iter().for_each(|c| {
-            conns.insert(
-                c.sender_conn_name.clone(),
-                Arc::new(OutgoingConnection::from(c.clone())),
-            );
-        });
-        Self { conns }
+        let mut all_conns_by_outgoing_name: HashMap<String, Vec<Arc<OutgoingConnection>>> =
+            HashMap::new();
+        for conn in value.iter() {
+            if let Some(outgoing_for_conn_name) =
+                all_conns_by_outgoing_name.get_mut(&conn.sender_conn_name)
+            {
+                outgoing_for_conn_name.push(Arc::new(OutgoingConnection::from(conn.clone())));
+            } else {
+                all_conns_by_outgoing_name.insert(
+                    conn.sender_conn_name.clone(),
+                    vec![Arc::new(OutgoingConnection::from(conn.clone()))],
+                );
+            }
+        }
+
+        let mut publish_conns: HashMap<String, Vec<Arc<OutgoingConnection>>> = HashMap::new();
+        for conn in Self::distinct_connections_by_key(value) {
+            publish_conns
+                .entry(conn.sender_conn_name.clone())
+                .or_default()
+                .push(Arc::new(OutgoingConnection::from(conn.clone())))
+        }
+
+        Self {
+            all_conns_by_outgoing_name,
+            publish_conns,
+        }
     }
 }
 
 impl OutgoingConnections {
+    /// Given a set of Connections that may have duplicate ConnectionKeys, return a distinct
+    /// set of them. Note that the exact Connection kept is not guaranteed.
+    fn distinct_connections_by_key(conns: &Vec<Arc<Connection>>) -> Vec<Arc<Connection>> {
+        let mut hm: HashMap<ConnectionKey, Arc<Connection>> = HashMap::new();
+        for conn in conns {
+            hm.entry(conn.connection_key).or_insert(conn.clone());
+        }
+        hm.values().map(|c| c.clone()).collect()
+    }
     /// Given a raw event from a Tasks' internal handler, do the following steps:
     /// 1. Attempt to find the `OutgoingConnection` for that conn_name.
     /// 2. If it exists, validate that the underlying type of the `Event` matches the `NegotiatedType` of the `OutgoingConnection`.
@@ -211,9 +275,11 @@ impl OutgoingConnections {
         // That needs to be mapped to a sender_id in the outgoing connection map
         // Then, an InternalEvent needs to be published to the right outgoing connection's
         // sender ref.
-        if let Some(outgoing_conn) = self.conns.get(&ev.conn_name) {
-            outgoing_conn.chan_type.validate_types(vec![&ev])?;
-            outgoing_conn.publish(ev).await?;
+        if let Some(outgoing_conns) = self.publish_conns.get(&ev.conn_name) {
+            for outgoing_conn in outgoing_conns {
+                outgoing_conn.chan_type.validate_types(vec![ev.clone()])?;
+                outgoing_conn.publish(ev.clone()).await?;
+            }
             Ok(())
         } else {
             Err(RuntimeError::UnknownOutgoingConnection {
@@ -224,20 +290,26 @@ impl OutgoingConnections {
 
     /// Send a sentinel shutdown message to **all** outgoing connections.
     pub async fn broadcast_shutdown(&self) {
-        for (_id, conn) in &self.conns {
-            conn.shutdown().await;
+        for (_id, conns) in &self.all_conns_by_outgoing_name {
+            for conn in conns {
+                conn.shutdown().await;
+            }
         }
     }
 
     /// Retrieve the mapping of connection names to the type ID(s) that have been negotiated
     /// for that connection.
     pub fn get_connection_types(&self) -> HashMap<String, Vec<TypeId>> {
-        let mut hm = HashMap::with_capacity(self.conns.len());
-        for (conn_name, outgoing_conn) in &self.conns {
-            match outgoing_conn.chan_type.as_ref() {
-                NegotiatedType::AllOf(types) => hm.insert(conn_name.clone(), types.clone()),
-                NegotiatedType::Singleton(tpe) => hm.insert(conn_name.clone(), vec![tpe.clone()]),
-            };
+        let mut hm = HashMap::with_capacity(self.all_conns_by_outgoing_name.len());
+        for (conn_name, outgoing_conns) in &self.all_conns_by_outgoing_name {
+            for outgoing_conn in outgoing_conns {
+                match outgoing_conn.chan_type.as_ref() {
+                    NegotiatedType::AllOf(types) => hm.insert(conn_name.clone(), types.clone()),
+                    NegotiatedType::Singleton(tpe) => {
+                        hm.insert(conn_name.clone(), vec![tpe.clone()])
+                    }
+                };
+            }
         }
         hm
     }

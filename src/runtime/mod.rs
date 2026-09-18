@@ -16,7 +16,7 @@ use crate::runtime::event::InternalEvent;
 /// The Message type that internal actors pass around.
 pub type EventMessage = Arc<InternalEvent>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum NegotiatedType {
     Singleton(TypeId),
     AllOf(Vec<TypeId>),
@@ -27,7 +27,7 @@ impl NegotiatedType {
     /// 1. If a singleton type, all events must be of that type.
     /// 2. If an AllOf type, then the list of events must contain exactly one
     /// event for each type specified.
-    pub fn validate_types(&self, events: Vec<&Event>) -> Result<(), RuntimeError> {
+    pub fn validate_types(&self, events: Vec<Arc<Event>>) -> Result<(), RuntimeError> {
         match self {
             Self::Singleton(tpe) => {
                 let illegal_events: Vec<String> = events

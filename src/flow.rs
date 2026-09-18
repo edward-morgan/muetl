@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Display, hash::Hash, sync::Arc};
 
 use crate::{
     registry::{Registry, TaskInfo},
-    runtime::{connection::Connection, NegotiatedType},
+    runtime::NegotiatedType,
     task_defs::ConfigValue,
 };
 
@@ -344,21 +344,6 @@ impl From<RawEdge> for Edge {
             to: raw_edge.to,
             edge_type: None,
         }
-    }
-}
-
-impl Edge {
-    /// Convert an Edge into a Connection. Since a Flow is validated upon construction, we can assume that the Edge's
-    /// `to` and `from` references are valid, and that TaskInfo records exist in the Registry for each Node.
-    ///
-    /// This function is provided on the Edge side as opposed to the Connection side to encapsulate logic related to
-    /// parsing and working with Flows, rather than implement `from_edge()` on a Connection.
-    pub fn to_connection(&self) -> Connection {
-        Connection::new(
-            self.edge_type.as_ref().unwrap().clone(),
-            self.from.conn_name.clone(),
-            self.to.conn_name.clone(),
-        )
     }
 }
 
