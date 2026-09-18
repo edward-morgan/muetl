@@ -4,7 +4,7 @@ use async_trait::async_trait;
 
 use crate::messages::event::Event;
 
-use super::{MuetlContext, TaskDef};
+use super::{MuetlOperatorContext, TaskDef};
 
 #[async_trait]
 pub trait Operator: TaskDef + Send + Sync {
@@ -15,14 +15,14 @@ pub trait Operator: TaskDef + Send + Sync {
     /// context's `results` channel.
     async fn handle_event_for_conn(
         &mut self,
-        ctx: &MuetlContext,
+        ctx: &MuetlOperatorContext,
         conn_name: &String,
         ev: Arc<Event>,
     );
 
     /// Called before the operator shuts down, allowing it to flush any buffered data.
     /// Default implementation does nothing.
-    async fn prepare_shutdown(&mut self, _ctx: &MuetlContext) {
+    async fn prepare_shutdown(&mut self, _ctx: &MuetlOperatorContext) {
         // Default no-op implementation
     }
 }

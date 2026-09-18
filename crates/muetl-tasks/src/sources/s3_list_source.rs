@@ -192,7 +192,7 @@ impl Output<()> for S3ListSource {
 
 #[async_trait]
 impl Source for S3ListSource {
-    async fn run(&mut self, ctx: &MuetlContext) {
+    async fn run(&mut self, ctx: &MuetlSourceContext) {
         self.ensure_client().await;
 
         let client = self.client.as_ref().unwrap();

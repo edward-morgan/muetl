@@ -14,7 +14,7 @@ use std::{collections::HashMap, sync::Arc};
 use muetl::{
     impl_config_template, impl_operator_handler,
     messages::event::Event,
-    task_defs::{operator::Operator, Input, MuetlContext, TaskConfig, TaskDef},
+    task_defs::{operator::Operator, Input, MuetlOperatorContext, TaskConfig, TaskDef},
 };
 
 /// An operator that can accept either serde_json::Value or String on the same input.
@@ -25,10 +25,7 @@ pub struct FlexibleOperator {
 
 impl FlexibleOperator {
     pub async fn new(config: TaskConfig) -> Result<Box<dyn Operator>, String> {
-        let prefix = config
-            .get_str("prefix")
-            .unwrap_or("processed")
-            .to_string();
+        let prefix = config.get_str("prefix").unwrap_or("processed").to_string();
         Ok(Box::new(FlexibleOperator { prefix }))
     }
 }
@@ -39,7 +36,7 @@ impl TaskDef for FlexibleOperator {}
 impl Input<serde_json::Value> for FlexibleOperator {
     const conn_name: &'static str = "data";
 
-    async fn handle(&mut self, ctx: &MuetlContext, value: &serde_json::Value) {
+    async fn handle(&mut self, ctx: &MuetlOperatorContext, value: &serde_json::Value) {
         println!("Handling JSON value: {}", value);
 
         ctx.results
@@ -58,7 +55,7 @@ impl Input<serde_json::Value> for FlexibleOperator {
 impl Input<String> for FlexibleOperator {
     const conn_name: &'static str = "data";
 
-    async fn handle(&mut self, ctx: &MuetlContext, value: &String) {
+    async fn handle(&mut self, ctx: &MuetlOperatorContext, value: &String) {
         println!("Handling string value: {}", value);
 
         ctx.results

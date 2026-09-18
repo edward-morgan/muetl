@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use muetl::{
     impl_config_template, impl_source_handler,
     messages::{event::Event, Status},
-    task_defs::{source::Source, MuetlContext, Output, TaskConfig, TaskDef},
+    task_defs::{source::Source, MuetlSourceContext, Output, TaskConfig, TaskDef},
 };
 
 /// RepeatSource emits a fixed string value a specified number of times.
@@ -41,7 +41,7 @@ impl Output<String> for RepeatSource {
 
 #[async_trait]
 impl Source for RepeatSource {
-    async fn run(&mut self, ctx: &MuetlContext) {
+    async fn run(&mut self, ctx: &MuetlSourceContext) {
         if self.remaining == 0 {
             ctx.status.send(Status::Finished).await.unwrap();
         } else {

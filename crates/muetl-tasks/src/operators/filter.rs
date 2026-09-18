@@ -8,7 +8,7 @@ use muetl::{
     impl_config_template,
     messages::event::Event,
     registry::{SelfDescribing, TaskDefInfo, TaskInfo},
-    task_defs::{operator::Operator, ConfigTemplate, MuetlContext, TaskConfig, TaskDef},
+    task_defs::{operator::Operator, ConfigTemplate, MuetlOperatorContext, TaskConfig, TaskDef},
 };
 
 /// Comparison operator for filter conditions.
@@ -153,7 +153,7 @@ impl SelfDescribing for Filter {
 impl Operator for Filter {
     async fn handle_event_for_conn(
         &mut self,
-        ctx: &MuetlContext,
+        ctx: &MuetlOperatorContext,
         conn_name: &String,
         ev: Arc<Event>,
     ) {

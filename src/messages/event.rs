@@ -1,6 +1,6 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
-use crate::prelude::MuetlContext;
+use crate::prelude::MuetlOperatorContext;
 
 /// Events control data movement in muetl and are produced and consumed by Tasks.
 #[derive(Debug, Clone)]
@@ -36,7 +36,7 @@ impl Event {
     /// Use this if you're creating an Event but don't care about the headers; any
     /// headers from earlier Tasks will be passed through transparently.
     pub fn with_headers_from(
-        ctx: &MuetlContext,
+        ctx: &MuetlOperatorContext,
         name: String,
         conn_name: String,
         data: Arc<dyn Any + Send + Sync>,

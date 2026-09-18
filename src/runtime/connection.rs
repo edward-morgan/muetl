@@ -2,15 +2,14 @@ use kameo::prelude::*;
 use std::any::TypeId;
 use std::collections::HashSet;
 use std::{collections::HashMap, sync::Arc};
+use uuid::Uuid;
 
 use kameo_actors::pubsub::{PubSub, Publish, Subscribe};
 
 use crate::messages::event::Event;
 use crate::runtime::error::RuntimeError;
-use crate::{
-    runtime::{event::InternalEvent, EventMessage, NegotiatedType},
-    util::new_id,
-};
+use crate::runtime::{event::InternalEvent, EventMessage, NegotiatedType};
+use crate::task_defs::Subscription;
 
 use super::event::Payload;
 
@@ -41,23 +40,22 @@ type ChannelImpl = Arc<ActorRef<PubSub<EventMessage>>>;
 /// 1. The type reference that has been negotiated for this connection.
 /// 2. A reference to the actor that will handle the producer/consumer relationship
 /// between the Tasks, which preserves loose coupling.
-///
-/// TODO: Ideally chan_ref shouldn't be `pub`, since callers could use it to stop or
-/// otherwise affect the PubSub, when really they *only* need the ability to publish
-/// to it.
 #[derive(Clone)]
 pub struct Connection {
+    /// An ID that uniquely represents this connection. Senders should use this when creating InternalEvents.
+    connection_key: ConnectionKey,
     /// The negotiated type of this connection.
     pub chan_type: Arc<NegotiatedType>,
     /// A channel to publish messages on.
     pub chan_ref: ChannelImpl,
-    /// A generated ID that the send side of this Connection should use when creating InternalEvents.
-    sender_id: u64,
     /// The conn_name of the sending Task.
     sender_conn_name: String,
     /// The conn_name of the receiving Task.
     receiver_conn_name: String,
 }
+
+pub(crate) type ConnectionKey = Uuid;
+
 impl Connection {
     pub fn new(tpe: NegotiatedType, sender_conn_name: String, receiver_conn_name: String) -> Self {
         Self {
@@ -65,31 +63,44 @@ impl Connection {
                 kameo_actors::DeliveryStrategy::Guaranteed,
             ))),
             chan_type: Arc::new(tpe),
-            sender_id: new_id(),
+            connection_key: Uuid::new_v4(),
             sender_conn_name,
             receiver_conn_name,
         }
     }
+
+    pub fn get_sender_conn_name(&self) -> String {
+        self.sender_conn_name.clone()
+    }
+    pub fn get_receiver_conn_name(&self) -> String {
+        self.receiver_conn_name.clone()
+    }
 }
 
 pub struct IncomingConnections {
-    conns: HashMap<u64, Arc<IncomingConnection>>,
+    conns: HashMap<ConnectionKey, Arc<Connection>>,
+    active: HashSet<ConnectionKey>,
 }
 
-impl From<&Vec<&Connection>> for IncomingConnections {
-    fn from(value: &Vec<&Connection>) -> Self {
-        let mut conns = HashMap::new();
-        value.iter().for_each(|c| {
-            conns.insert(c.sender_id, Arc::new(IncomingConnection::from(&c)));
-        });
-        Self { conns }
+impl From<&Vec<Arc<Connection>>> for IncomingConnections {
+    fn from(value: &Vec<Arc<Connection>>) -> Self {
+        let mut conns: HashMap<ConnectionKey, Arc<Connection>> = HashMap::new();
+
+        for conn in value {
+            conns.insert(conn.connection_key, conn.clone());
+        }
+
+        Self {
+            conns,
+            active: value.iter().map(|c| c.connection_key.clone()).collect(),
+        }
     }
 }
 
 impl IncomingConnections {
     pub fn conn_name_for(&self, ie: Arc<InternalEvent>) -> Result<String, RuntimeError> {
-        if let Some(ic) = self.conns.get(&ie.sender_id) {
-            Ok(ic.receiver_conn_name.clone())
+        if let Some(incoming_for_conn) = self.conns.get(&ie.sender_id) {
+            Ok(incoming_for_conn.receiver_conn_name.clone())
         } else {
             Err(RuntimeError::UnknownIncomingConnection { id: ie.sender_id })
         }
@@ -112,13 +123,45 @@ impl IncomingConnections {
     }
 
     /// Returns the list of sender IDs that are in this IncomingConnections set.
-    pub fn incoming_sender_ids(&self) -> HashSet<u64> {
+    pub fn incoming_sender_ids(&self) -> HashSet<ConnectionKey> {
         self.conns.iter().map(|(&id, _)| id).collect()
+    }
+
+    /// Returns the set of subscriptions for this `IncomingConnections` object, sorted by the
+    /// receiver_conn_name.
+    pub fn subscriptions(&self) -> HashMap<String, Vec<Subscription>> {
+        let mut hm: HashMap<String, Vec<Subscription>> = HashMap::new();
+        for (conn_key, conn) in &self.conns {
+            let sub = Subscription {
+                publisher_conn_name: conn.get_sender_conn_name(),
+                subscriber_conn_name: conn.get_receiver_conn_name(),
+                subscription_type: conn.chan_type.clone(),
+                active: self.active.contains(conn_key),
+            };
+            if let Some(incoming_for_conn_name) = hm.get_mut(&conn.receiver_conn_name) {
+                incoming_for_conn_name.push(sub);
+            } else {
+                hm.insert(conn.receiver_conn_name.clone(), vec![sub]);
+            }
+        }
+
+        hm
+    }
+
+    /// Returns whether there are any active Connections in this IncomingConnections object.
+    pub fn alive(&self) -> bool {
+        !self.active.is_empty()
+    }
+
+    /// Mark that an incoming connection has become inactive.
+    pub fn mark_inactive(&mut self, key: ConnectionKey) {
+        self.active.remove(&key);
     }
 }
 
-/// The side of a `Connection` that is provided to consumer Tasks (Sinks and Nodes).
+/// The side of a `Connection` that is provided to consumer Tasks (Sinks and Operators).
 pub struct IncomingConnection {
+    pub connection_key: ConnectionKey,
     pub chan_type: Arc<NegotiatedType>,
     pub chan_ref: ChannelImpl,
     pub receiver_conn_name: String, // Descriptive only
@@ -129,6 +172,7 @@ pub struct IncomingConnection {
 impl IncomingConnection {
     pub fn from(c: &Connection) -> Self {
         Self {
+            connection_key: c.connection_key.clone(),
             chan_ref: c.chan_ref.clone(),
             chan_type: c.chan_type.clone(),
             receiver_conn_name: c.receiver_conn_name.clone(),
@@ -137,17 +181,18 @@ impl IncomingConnection {
     }
 }
 
+/// The side of a `Connection` that is provided to producer Tasks (Sources and Operators).
 pub struct OutgoingConnections {
     /// The mapping from output conn_name to OutgoingConnection for this Task.
     conns: HashMap<String, Arc<OutgoingConnection>>,
 }
-impl From<&Vec<&Connection>> for OutgoingConnections {
-    fn from(value: &Vec<&Connection>) -> Self {
+impl From<&Vec<Arc<Connection>>> for OutgoingConnections {
+    fn from(value: &Vec<Arc<Connection>>) -> Self {
         let mut conns = HashMap::new();
-        value.iter().for_each(|&c| {
+        value.iter().for_each(|c| {
             conns.insert(
                 c.sender_conn_name.clone(),
-                Arc::new(OutgoingConnection::from(c)),
+                Arc::new(OutgoingConnection::from(c.clone())),
             );
         });
         Self { conns }
@@ -198,30 +243,29 @@ impl OutgoingConnections {
     }
 }
 
-/// The side of a `Connection` that is provided to producer Tasks (Daemons, Sources, and Nodes).
+/// The side of a `Connection` that is provided to producer Tasks (Sinks, Sources, and Operators).
 pub struct OutgoingConnection {
+    pub connection_key: ConnectionKey,
     pub chan_type: Arc<NegotiatedType>,
     pub chan_ref: ChannelImpl,
     pub sender_conn_name: String, // Descriptive only
-    sender_id: u64,
 }
 
 impl OutgoingConnection {
-    pub fn from(c: &Connection) -> Self {
+    pub fn from(c: Arc<Connection>) -> Self {
         Self {
             chan_ref: c.chan_ref.clone(),
             chan_type: c.chan_type.clone(),
             sender_conn_name: c.sender_conn_name.clone(),
-            sender_id: c.sender_id,
+            connection_key: c.connection_key,
         }
     }
 
-    // TODO: return a result type
     pub async fn publish(&self, ev: Arc<Event>) -> Result<(), RuntimeError> {
         match self
             .chan_ref
             .tell(Publish(Arc::new(InternalEvent {
-                sender_id: self.sender_id,
+                sender_id: self.connection_key,
                 event: Payload::Data(ev.clone()),
             })))
             .await
@@ -236,10 +280,12 @@ impl OutgoingConnection {
     pub async fn shutdown(&self) {
         self.chan_ref
             .tell(Publish(Arc::new(InternalEvent {
-                sender_id: self.sender_id,
+                sender_id: self.connection_key,
                 event: Payload::Stopped,
             })))
             .await
-            .unwrap()
+            .unwrap();
+        // After publishing Payload::Stopped, shut the PubSub channel down so that the chan_ref is marked inactive.
+        self.chan_ref.stop_gracefully().await.unwrap();
     }
 }

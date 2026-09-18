@@ -13,7 +13,8 @@ use muetl::{
     impl_operator_handler, impl_sink_handler,
     messages::event::Event,
     task_defs::{
-        source::Source, Input, MuetlContext, MuetlSinkContext, SinkInput, TaskConfig, TaskDef,
+        source::Source, Input, MuetlOperatorContext, MuetlSinkContext, MuetlSourceContext,
+        SinkInput, TaskConfig, TaskDef,
     },
 };
 
@@ -40,7 +41,7 @@ impl TaskDef for NumberSource {}
 
 #[async_trait]
 impl Source for NumberSource {
-    async fn run(&mut self, ctx: &MuetlContext) {
+    async fn run(&mut self, ctx: &MuetlSourceContext) {
         if self.current >= self.max {
             ctx.status
                 .send(muetl::messages::Status::Finished)
@@ -85,7 +86,7 @@ impl TaskDef for Adder {}
 
 impl Input<i64> for Adder {
     const conn_name: &'static str = "input";
-    async fn handle(&mut self, ctx: &MuetlContext, value: &i64) {
+    async fn handle(&mut self, ctx: &MuetlOperatorContext, value: &i64) {
         let result = value + self.addend;
         ctx.results
             .send(Event::new(
@@ -125,7 +126,7 @@ impl TaskDef for Multiplier {}
 
 impl Input<i64> for Multiplier {
     const conn_name: &'static str = "input";
-    async fn handle(&mut self, ctx: &MuetlContext, value: &i64) {
+    async fn handle(&mut self, ctx: &MuetlOperatorContext, value: &i64) {
         let result = value * self.factor;
         ctx.results
             .send(Event::new(

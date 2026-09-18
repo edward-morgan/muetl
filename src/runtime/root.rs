@@ -376,7 +376,7 @@ impl Actor for Root {
 }
 
 struct EdgeConnections {
-    mapping: Vec<(Edge, Connection)>,
+    mapping: Vec<(Edge, Arc<Connection>)>,
 }
 
 impl From<Vec<Edge>> for EdgeConnections {
@@ -389,10 +389,12 @@ impl From<Vec<Edge>> for EdgeConnections {
         let mut mapping = vec![];
 
         for edge in edges {
-            let conn = conn_by_source
-                .entry(edge.from.clone())
-                .or_insert_with(|| edge.to_connection())
-                .clone();
+            let conn = Arc::new(
+                conn_by_source
+                    .entry(edge.from.clone())
+                    .or_insert_with(|| edge.to_connection())
+                    .clone(),
+            );
             mapping.push((edge, conn));
         }
         EdgeConnections { mapping }
@@ -406,7 +408,7 @@ impl EdgeConnections {
             .iter()
             .flat_map(|(e, c)| {
                 if e.from.node_id == *edge_node_id {
-                    Some(c)
+                    Some(c.clone())
                 } else {
                     None
                 }
@@ -420,7 +422,7 @@ impl EdgeConnections {
             .iter()
             .flat_map(|(e, c)| {
                 if e.to.node_id == *edge_node_id {
-                    Some(c)
+                    Some(c.clone())
                 } else {
                     None
                 }

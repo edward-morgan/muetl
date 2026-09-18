@@ -5,11 +5,14 @@ pub mod source;
 
 pub use config::*;
 
-use std::{any::TypeId, collections::HashMap};
+use std::{any::TypeId, collections::HashMap, sync::Arc};
 
 use tokio::sync::mpsc::Sender;
 
-use crate::messages::{event::Event, Status};
+use crate::{
+    messages::{event::Event, Status},
+    runtime::NegotiatedType,
+};
 
 /// Generates the `handle_event_for_conn` implementation for an Operator.
 ///
@@ -207,7 +210,7 @@ macro_rules! impl_operator_handler {
         impl_operator_handler!(@impl_trait_with_methods $ty, [
             async fn prepare_shutdown(
                 &mut self,
-                ctx: &$crate::task_defs::MuetlContext,
+                ctx: &$crate::task_defs::MuetlOperatorContext,
             ) {
                 self.$prepare_shutdown(ctx).await;
             }
@@ -220,7 +223,7 @@ macro_rules! impl_operator_handler {
         impl $crate::task_defs::operator::Operator for $ty {
             async fn handle_event_for_conn(
                 &mut self,
-                ctx: &$crate::task_defs::MuetlContext,
+                ctx: &$crate::task_defs::MuetlOperatorContext,
                 conn_name: &String,
                 ev: std::sync::Arc<$crate::messages::event::Event>,
             ) {
@@ -537,7 +540,7 @@ pub trait Input<T> {
     #[allow(non_upper_case_globals)]
     const conn_name: &'static str;
     #[allow(async_fn_in_trait)]
-    async fn handle(&mut self, ctx: &MuetlContext, input: &T);
+    async fn handle(&mut self, ctx: &MuetlOperatorContext, input: &T);
 }
 
 /// Users should implement SinkInput<Some Type> to declare that their Sink is
@@ -561,9 +564,21 @@ pub trait Output<T> {
     const conn_name: &'static str;
 }
 
-/// A MuetlContext contains information about the runtime environment that a TaskDef might need
-/// when running.
-pub struct MuetlContext {
+pub struct Subscription {
+    /// The source conn_name
+    pub publisher_conn_name: String,
+    /// The target conn_name
+    pub subscriber_conn_name: String,
+    /// The negotiated type of this subscription
+    pub subscription_type: Arc<NegotiatedType>,
+    /// Whether this subscription is active or not; usually a subscription
+    /// becomes inactive when the publisher shuts down.
+    pub active: bool,
+}
+
+/// A MuetlContext contains information about the runtime environment that a Source TaskDef
+/// might need when running.
+pub struct MuetlSourceContext {
     /// For TaskDefs that produce outputs, the current mapping of output conn_names to the
     /// type IDs that have been requested by subscribers. Note that each mapping has already
     /// been validated against the full list of supported output types for the given
@@ -600,6 +615,47 @@ pub struct MuetlContext {
     pub event_headers: HashMap<String, String>,
 }
 
+/// A MuetlContext contains information about the runtime environment that a TaskDef might need
+/// when running.
+pub struct MuetlOperatorContext {
+    /// For TaskDefs that produce outputs, the current mapping of output conn_names to the
+    /// type IDs that have been requested by subscribers. Note that each mapping has already
+    /// been validated against the full list of supported output types for the given
+    /// conn_name; this represents the list of types that are expected.
+    ///
+    /// Producers should use this to limit how much work they do when producing messages to
+    /// outputs that support multiple types. For example, take a Source that has an output
+    /// named "output_1" with possible output types `[String, i32, bool]`. At runtime, two
+    /// Sinks subscribe to the "output_1" connection:
+    /// - Sink #1 requests types `[i32, bool]`.
+    /// - Sink #2 requests type `[String]`.
+    ///
+    /// Prior to starting the TaskDefs, muetl will negotiate the acceptable types such that
+    /// all subscribers agree on the type they'll receive. For the example above, the list
+    /// of current subscribers would look like:
+    /// {
+    ///   output_1: [i32, String]
+    /// }
+    /// The Source should then use that information, stored in `current_subscribers`, to
+    /// only produce the types that are needed for `output_1`, instead of naively producing
+    /// messages of all its supported types ([String, i32, bool]).
+    ///
+    /// Note that `current_subscribers` may change between calls to a producer's run function
+    /// as new Tasks subscribe or unsubscribe.
+    pub current_subscribers: HashMap<String, Vec<TypeId>>,
+    /// The channel to send results back on, in the form of Events.
+    pub results: Sender<Event>,
+    /// The channel to send statuses back on.
+    pub status: Sender<Status>,
+    /// The name of the current event being processed (if any).
+    pub event_name: Option<String>,
+    /// Headers from the current event being processed (if any).
+    /// In the case of a Source, event_headers will always be empty.
+    pub event_headers: HashMap<String, String>,
+    /// The current set of subscriptions for this Task across all input connections.
+    pub current_subscriptions: HashMap<String, Vec<Subscription>>,
+}
+
 /// A MuetlSinkContext contains the context a Sink should use when running. It's different from a `MuetlContext` in that it has
 /// no output results channel, nor does it have a map of current subscribers.
 pub struct MuetlSinkContext {
@@ -609,6 +665,8 @@ pub struct MuetlSinkContext {
     pub event_name: String,
     /// Headers from the current event being processed.
     pub event_headers: HashMap<String, String>,
+    /// The current set of subscriptions for this Task across all input connections.
+    pub current_subscriptions: HashMap<String, Vec<Subscription>>,
 }
 
 #[cfg(test)]
@@ -627,7 +685,7 @@ mod handler_macro_tests {
             }))
         }
 
-        async fn flush_on_shutdown(&mut self, ctx: &MuetlContext) {
+        async fn flush_on_shutdown(&mut self, ctx: &MuetlOperatorContext) {
             assert_eq!(ctx.event_name.as_deref(), Some("operator-shutdown"));
             self.shutdown_called = true;
         }
@@ -639,7 +697,7 @@ mod handler_macro_tests {
     impl Input<()> for ShutdownOperator {
         const conn_name: &'static str = "input";
 
-        async fn handle(&mut self, _ctx: &MuetlContext, _input: &()) {}
+        async fn handle(&mut self, _ctx: &MuetlOperatorContext, _input: &()) {}
     }
 
     impl_operator_handler!(
@@ -693,12 +751,13 @@ mod handler_macro_tests {
     async fn operator_macro_delegates_prepare_shutdown() {
         let (results, _results_rx) = tokio::sync::mpsc::channel(1);
         let (status, _status_rx) = tokio::sync::mpsc::channel(1);
-        let ctx = MuetlContext {
+        let ctx = MuetlOperatorContext {
             current_subscribers: HashMap::new(),
             results,
             status,
             event_name: Some("operator-shutdown".to_string()),
             event_headers: HashMap::new(),
+            current_subscriptions: HashMap::new(),
         };
         let mut operator = ShutdownOperator {
             shutdown_called: false,
@@ -716,6 +775,7 @@ mod handler_macro_tests {
             status,
             event_name: "sink-shutdown".to_string(),
             event_headers: HashMap::new(),
+            current_subscriptions: HashMap::new(),
         };
         let mut sink = ShutdownSink {
             shutdown_called: false,

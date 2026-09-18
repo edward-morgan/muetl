@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use muetl::{
     impl_config_template, impl_source_handler,
     messages::{event::Event, Status},
-    task_defs::{source::Source, MuetlContext, Output, TaskConfig, TaskDef},
+    task_defs::{source::Source, MuetlSourceContext, Output, TaskConfig, TaskDef},
 };
 
 /// SequenceSource emits a configurable sequence of integers.
@@ -58,7 +58,7 @@ impl Output<i64> for SequenceSource {
 
 #[async_trait]
 impl Source for SequenceSource {
-    async fn run(&mut self, ctx: &MuetlContext) {
+    async fn run(&mut self, ctx: &MuetlSourceContext) {
         if self.is_done() {
             ctx.status.send(Status::Finished).await.unwrap();
         } else {

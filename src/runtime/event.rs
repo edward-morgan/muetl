@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::messages::event::Event;
+use crate::{messages::event::Event, runtime::connection::ConnectionKey};
 
 /// The internal event type passed around by runtime actors. Contains
 /// more information about the runtime environment than users writing
@@ -8,7 +8,7 @@ use crate::messages::event::Event;
 pub struct InternalEvent {
     /// The sender's ID as set at runtime when instantiated by the system.
     /// A sender_id is composed of the unique ID of the sending actor + an ID representing the connection it's being sent on.
-    pub sender_id: u64,
+    pub sender_id: ConnectionKey,
     // pub event: Arc<Event>,
     pub event: Payload,
 }
