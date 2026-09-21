@@ -745,7 +745,7 @@ impl ConfigType {
                         return true;
                     }
                 }
-                return false;
+                false
             }
             (ConfigType::Path, ConfigValue::Path(_)) => true,
             _ => false,

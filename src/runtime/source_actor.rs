@@ -67,7 +67,7 @@ impl SourceActor {
             trace_id,
             task_name,
             source,
-            monitor: monitor,
+            monitor,
             current_context: MuetlSourceContext {
                 current_subscribers: outgoing_connections.get_connection_types(),
                 results: results_tx,
@@ -244,7 +244,7 @@ impl Actor for SourceActor {
             Ok(_) => Ok(args),
             Err(SendError::MailboxFull(())) => {
                 tracing::error!(taskid = args.id, task_name = %args.task_name, "mailbox is full on_start");
-                Err(format!("failed to enqueue initial source iteration"))
+                Err("failed to enqueue initial source iteration".to_string())
             }
             Err(e) => {
                 tracing::error!(taskid = args.id, task_name = %args.task_name, "unknown error on startup");

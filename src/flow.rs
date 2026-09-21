@@ -57,8 +57,7 @@ impl Flow {
     pub fn get_task_info_for(&self, node_ref: &NodeRef) -> Option<Arc<TaskInfo>> {
         self.nodes
             .get(&node_ref.node_id)
-            .map(|n| n.info.clone())
-            .flatten()
+            .and_then(|n| n.info.clone())
     }
 
     /// Sole constructor for a `Flow` that accepts a `RawFlow` and `Registry` as input. This adheres to
@@ -84,14 +83,11 @@ impl Flow {
     fn parse_structure(value: RawFlow) -> Result<Self, String> {
         let mut hm = HashMap::new();
         for raw_node in value.nodes {
-            match hm.insert(raw_node.node_id.clone(), Node::from(raw_node)) {
-                Some(prev) => {
-                    return Err(format!(
-                        "invalid flow: node id {} is duplicated",
-                        prev.node_id,
-                    ));
-                }
-                None => {}
+            if let Some(prev) = hm.insert(raw_node.node_id.clone(), Node::from(raw_node)) {
+                return Err(format!(
+                    "invalid flow: node id {} is duplicated",
+                    prev.node_id,
+                ));
             }
         }
         // Make sure every edge is pointing to nodes that exist
@@ -127,7 +123,7 @@ impl Flow {
     ///     - Otherwise, set a NegotiatedType for each edge in the group.
     fn validate_flow(&mut self, reg: Arc<Registry>) -> ValidationResult {
         let mut validation_errors = vec![];
-        for (_node_id, node) in self.nodes.iter_mut() {
+        for node in self.nodes.values_mut() {
             // 1. Ensure each referenced node exists in the registry; return an error immediately if any can't be found-
             // don't wait to aggregate any more errors.
             if let Some(def) = reg.def_for(&node.task_id) {
@@ -142,9 +138,7 @@ impl Flow {
 
         // Ensure that each Edge connects to known inputs/outputs. If there are any missing Edges then
         // return an error here.
-        if let Err(errs) = self.validate_edges(reg.clone()) {
-            return Err(errs);
-        }
+        self.validate_edges(reg.clone())?;
 
         // 2. Group edges by their `from` NodeRef
         let mut outgoing_edges: HashMap<NodeRef, Vec<&mut Edge>> = HashMap::new();

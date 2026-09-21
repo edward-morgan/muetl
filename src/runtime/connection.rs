@@ -1,6 +1,5 @@
 use kameo::prelude::*;
 use std::any::TypeId;
-use std::collections::hash_map::Entry;
 use std::collections::HashSet;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
@@ -121,7 +120,7 @@ impl From<&Vec<Arc<Connection>>> for IncomingConnections {
 
         Self {
             conns,
-            active: value.iter().map(|c| c.connection_key.clone()).collect(),
+            active: value.iter().map(|c| c.connection_key).collect(),
         }
     }
 }
@@ -141,12 +140,12 @@ impl IncomingConnections {
         &self,
         subscriber_ref: ActorRef<T>,
     ) -> Result<(), String> {
-        for (_, v) in &self.conns {
+        for v in self.conns.values() {
             match v.chan_ref.tell(Subscribe(subscriber_ref.clone())).await {
                 Ok(_) => {}
                 Err(e) => {
                     tracing::error!(error = ?e, "Failed to subscribe to channel");
-                    return Err(format!("failed to subscribe"));
+                    return Err("failed to subscribe".to_string());
                 }
             }
         }
@@ -203,7 +202,7 @@ pub struct IncomingConnection {
 impl IncomingConnection {
     pub fn from(c: &Connection) -> Self {
         Self {
-            connection_key: c.connection_key.clone(),
+            connection_key: c.connection_key,
             chan_ref: c.chan_ref.clone(),
             chan_type: c.chan_type.clone(),
             receiver_conn_name: c.receiver_conn_name.clone(),
@@ -262,7 +261,7 @@ impl OutgoingConnections {
         for conn in conns {
             hm.entry(conn.connection_key).or_insert(conn.clone());
         }
-        hm.values().map(|c| c.clone()).collect()
+        hm.values().cloned().collect()
     }
     /// Given a raw event from a Tasks' internal handler, do the following steps:
     /// 1. Attempt to find the `OutgoingConnection` for that conn_name.
@@ -290,7 +289,7 @@ impl OutgoingConnections {
 
     /// Send a sentinel shutdown message to **all** outgoing connections.
     pub async fn broadcast_shutdown(&self) {
-        for (_id, conns) in &self.all_conns_by_outgoing_name {
+        for conns in self.all_conns_by_outgoing_name.values() {
             for conn in conns {
                 conn.shutdown().await;
             }
@@ -306,7 +305,7 @@ impl OutgoingConnections {
                 match outgoing_conn.chan_type.as_ref() {
                     NegotiatedType::AllOf(types) => hm.insert(conn_name.clone(), types.clone()),
                     NegotiatedType::Singleton(tpe) => {
-                        hm.insert(conn_name.clone(), vec![tpe.clone()])
+                        hm.insert(conn_name.clone(), vec![*tpe])
                     }
                 };
             }

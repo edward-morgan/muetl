@@ -48,12 +48,12 @@ impl TaskDefInfo {
             Self::SourceDef {
                 outputs,
                 build_source: _,
-            } => outputs.keys().map(|name| name.clone()).collect(),
+            } => outputs.keys().cloned().collect(),
             Self::OperatorDef {
                 inputs: _,
                 outputs,
                 build_operator: _,
-            } => outputs.keys().map(|name| name.clone()).collect(),
+            } => outputs.keys().cloned().collect(),
             _ => vec![],
         }
     }
@@ -65,11 +65,11 @@ impl TaskDefInfo {
                 inputs,
                 outputs: _,
                 build_operator: _,
-            } => inputs.keys().map(|name| name.clone()).collect(),
+            } => inputs.keys().cloned().collect(),
             Self::SinkDef {
                 inputs,
                 build_sink: _,
-            } => inputs.keys().map(|name| name.clone()).collect(),
+            } => inputs.keys().cloned().collect(),
             _ => vec![],
         }
     }
@@ -103,6 +103,12 @@ impl TaskDefInfo {
 /// what is running at any given time.
 pub struct Registry {
     defs: Vec<Arc<TaskInfo>>,
+}
+
+impl Default for Registry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Registry {

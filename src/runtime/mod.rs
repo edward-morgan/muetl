@@ -34,20 +34,20 @@ impl NegotiatedType {
                     .iter()
                     .filter_map(|ev| {
                         // Extract the underlying type, otherwise we're getting the TypeId of the Arc
-                        if (&*ev.get_data()).type_id() != *tpe {
+                        if (*ev.get_data()).type_id() != *tpe {
                             Some(format!(
                                 "[{}: {:?}]",
                                 ev.name.clone(),
-                                (&*ev.get_data()).type_id()
+                                (*ev.get_data()).type_id()
                             ))
                         } else {
                             None
                         }
                     })
                     .collect();
-                if illegal_events.len() > 0 {
+                if !illegal_events.is_empty() {
                     Err(RuntimeError::TypeMismatch {
-                        event_type: tpe.clone(),
+                        event_type: *tpe,
                         illegal_events,
                     })
                 } else {
@@ -63,13 +63,13 @@ impl NegotiatedType {
                 }
                 let mut present = HashMap::new();
                 for ev in events {
-                    if present.contains_key(&(&*ev.get_data()).type_id()) {
+                    if let std::collections::hash_map::Entry::Vacant(e) = present.entry((*ev.get_data()).type_id()) {
+                        e.insert(());
+                    } else {
                         return Err(RuntimeError::DuplicateTypeError {
-                            event_type_id: (&*ev.get_data()).type_id(),
+                            event_type_id: (*ev.get_data()).type_id(),
                             possible_type_ids: types.clone(),
                         });
-                    } else {
-                        present.insert((&*ev.get_data()).type_id(), ());
                     }
                 }
                 Ok(())

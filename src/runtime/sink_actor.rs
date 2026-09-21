@@ -174,7 +174,7 @@ impl Message<Arc<InternalEvent>> for SinkActor {
                                 res = status_rx.recv() => {
                                     if let Some(status) = res {
                                         tracing::debug!(task_id = self.id, status = ?status, "Sink received status");
-                                        self.monitor.tell(StatusUpdate{status: status, id: self.id}).await.unwrap();
+                                        self.monitor.tell(StatusUpdate{status, id: self.id}).await.unwrap();
                                     } else {
                                         break;
                                     }

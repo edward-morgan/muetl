@@ -20,12 +20,18 @@ pub struct Monitor {
     flows_to_node_ids: Mutex<HashMap<String, Vec<String>>>,
 }
 
+impl Default for Monitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Monitor {
     pub fn new() -> Self {
-        return Self {
+        Self {
             records: Mutex::new(HashMap::new()),
             flows_to_node_ids: Mutex::new(HashMap::new()),
-        };
+        }
     }
 
     /// Updates the flows_to_node_ids mapping with `flow_id` and `node_id`, creating a new `flow_id`
@@ -112,25 +118,22 @@ impl Message<RegisterRuntimeInfo> for Monitor {
         _ctx: &mut kameo::prelude::Context<Self, Self::Reply>,
     ) -> Self::Reply {
         let mut rec = self.records.lock().unwrap();
-        if rec.contains_key(&msg.task_id) {
-            tracing::error!(
-                "Monitor already contains a runtime record for node with ID = {}",
-                msg.task_id
-            )
-        } else {
+        if let std::collections::hash_map::Entry::Vacant(e) = rec.entry(msg.task_id) {
             tracing::info!(info = ?msg, "Monitor registering new runtime task");
-            rec.insert(
-                msg.task_id,
-                MonitorRecord {
+            e.insert(MonitorRecord {
                     flow_id: msg.flow_id.clone(),
                     id: msg.task_id,
                     task_def_id: msg.task_def_id.clone(),
                     node_id: msg.node_id.clone(),
                     statuses: vec![],
-                },
-            );
+                });
             drop(rec);
             self.insert_flow_node_mapping(msg.flow_id, msg.node_id);
+        } else {
+            tracing::error!(
+                "Monitor already contains a runtime record for node with ID = {}",
+                msg.task_id
+            )
         }
     }
 }
@@ -152,13 +155,13 @@ struct MonitorRecord {
     pub statuses: Vec<Status>,
 }
 
-impl Into<RuntimeInfo> for MonitorRecord {
-    fn into(self) -> RuntimeInfo {
+impl From<MonitorRecord> for RuntimeInfo {
+    fn from(val: MonitorRecord) -> Self {
         RuntimeInfo {
-            task_id: self.id,
-            task_def_id: self.task_def_id,
-            node_id: self.node_id,
-            current_status: self.statuses.last().cloned(),
+            task_id: val.id,
+            task_def_id: val.task_def_id,
+            node_id: val.node_id,
+            current_status: val.statuses.last().cloned(),
         }
     }
 }

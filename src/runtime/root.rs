@@ -7,7 +7,7 @@ use crate::{
     logging::FileLogWriter,
     messages::RegisterRuntimeInfo,
     registry::TaskDefInfo,
-    runtime::{connection::ConnectionKey, error::RuntimeError, monitor_actor::Monitor},
+    runtime::{error::RuntimeError, monitor_actor::Monitor},
     task_defs::TaskConfig,
     util::new_id,
 };
@@ -112,7 +112,7 @@ impl Root {
         match &task_info.config_tpl {
             Some(tpl) => tpl
                 .validate(node.configuration.clone())
-                .map_err(|errors| RuntimeError::ConfigResolutionError(errors)),
+                .map_err(RuntimeError::ConfigResolutionError),
             None => Ok(TaskConfig::new(node.configuration.clone())),
         }
     }
@@ -139,9 +139,9 @@ impl Root {
                         node_id.clone(),
                         Some(source),
                         self.monitor.clone(),
-                        self.connections.outgoing_connections_from(&node_id),
+                        self.connections.outgoing_connections_from(node_id),
                     );
-                    let r = SourceActor::spawn_link(&actor_ref, r).await;
+                    let r = SourceActor::spawn_link(actor_ref, r).await;
                     Ok(r.id())
                 }
                 Err(e) => Err(e),
@@ -159,7 +159,7 @@ impl Root {
                         self.monitor.clone(),
                         self.connections.incoming_connections_to(node_id),
                     );
-                    let r = SinkActor::spawn_link(&actor_ref, r).await;
+                    let r = SinkActor::spawn_link(actor_ref, r).await;
                     Ok(r.id())
                 }
                 Err(e) => Err(e),
@@ -179,7 +179,7 @@ impl Root {
                         self.connections.incoming_connections_to(node_id),
                         self.connections.outgoing_connections_from(node_id),
                     );
-                    let r = OperatorActor::spawn_link(&actor_ref, r).await;
+                    let r = OperatorActor::spawn_link(actor_ref, r).await;
                     Ok(r.id())
                 }
                 Err(e) => Err(e),
@@ -405,7 +405,7 @@ impl From<Vec<Edge>> for EdgeConnections {
                 {
                     Some(existing) => Arc::new(Connection::with_channel(
                         et.clone(),
-                        existing.connection_key.clone(),
+                        existing.connection_key,
                         edge.from.conn_name.clone(),
                         edge.to.conn_name.clone(),
                         existing.chan_ref.clone(),
