@@ -1,18 +1,19 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use kameo::{actor::ActorRef, prelude::Message, Actor};
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, Sender};
 use tracing::Instrument;
 
 use crate::logging::global_registry;
+use crate::messages::event::Event;
 use crate::messages::SystemEvent;
 use crate::runtime::connection::{IncomingConnections, OutgoingConnections};
 use crate::runtime::monitor_actor::Monitor;
 use crate::{
     messages::{Status, StatusUpdate},
     runtime::event::InternalEvent,
-    task_defs::{operator::Operator, MuetlContext},
+    task_defs::{operator::Operator, MuetlOperatorContext},
     util::new_id,
 };
 
@@ -26,11 +27,7 @@ pub struct OperatorActor {
     monitor: ActorRef<Monitor>,
     /// The mapping set by the system at runtime to tell this actor which
     /// input conn_name events with a given sender_id should go to.
-    subscriptions: IncomingConnections,
-    /// The subset of sender IDs in `subscriptions` that are currently
-    /// active, i.e. those that haven't published the Payload::Stopped
-    /// event to signal that they are shutting down.
-    active_subscriptions: HashSet<u64>,
+    incoming_connections: IncomingConnections,
     /// A mapping of output conn_names to internal sender IDs.
     outgoing_connections: OutgoingConnections,
 }
@@ -61,11 +58,9 @@ impl OperatorActor {
         task_name: String,
         operator: Option<Box<dyn Operator>>,
         monitor: ActorRef<Monitor>,
-        subscriptions: IncomingConnections,
+        incoming_connections: IncomingConnections,
         outgoing_connections: OutgoingConnections,
     ) -> Self {
-        let incoming_sender_ids = subscriptions.incoming_sender_ids();
-
         // Register this task with the log registry
         global_registry().register_task(task_id);
 
@@ -75,8 +70,7 @@ impl OperatorActor {
             task_name,
             operator,
             monitor,
-            subscriptions,
-            active_subscriptions: incoming_sender_ids,
+            incoming_connections,
             outgoing_connections,
         }
     }
@@ -84,7 +78,24 @@ impl OperatorActor {
     /// Determines whether or not this Operator should shut down, which relies on looking at each incoming connection
     /// and determining if any of them can potentially receive data.
     pub fn should_shut_down(&self) -> bool {
-        self.active_subscriptions.is_empty()
+        !self.incoming_connections.alive()
+    }
+
+    fn create_context(
+        &self,
+        results: Sender<Event>,
+        status: Sender<Status>,
+        event_name: Option<String>,
+        event_headers: HashMap<String, String>,
+    ) -> MuetlOperatorContext {
+        MuetlOperatorContext {
+            current_subscribers: self.outgoing_connections.get_connection_types(),
+            results,
+            status,
+            event_name,
+            event_headers,
+            current_subscriptions: self.incoming_connections.subscriptions(),
+        }
     }
 }
 
@@ -110,7 +121,7 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
         match &msg.event {
             Payload::Stopped => {
                 // Mark the current IncomingConnection as stopped
-                self.active_subscriptions.remove(&msg.sender_id);
+                self.incoming_connections.mark_inactive(msg.sender_id);
                 // If no incoming connections are active, then stop the Actor.
                 if self.should_shut_down() {
                     tracing::info!(task_id = self.id, task_name = %self.task_name, "No incoming connections are still active; Operator will shut down.");
@@ -120,13 +131,8 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
                         let (result_tx, mut result_rx) = mpsc::channel(100);
                         let (status_tx, _status_rx) = mpsc::channel(100);
 
-                        let shutdown_ctx = MuetlContext {
-                            current_subscribers: self.outgoing_connections.get_connection_types(),
-                            results: result_tx,
-                            status: status_tx,
-                            event_name: None,
-                            event_headers: HashMap::new(),
-                        };
+                        let shutdown_ctx =
+                            self.create_context(result_tx, status_tx, None, HashMap::new());
 
                         let span = tracing::info_span!(
                             "task_shutdown",
@@ -167,18 +173,17 @@ impl Message<Arc<InternalEvent>> for OperatorActor {
             }
             Payload::Data(ev) => {
                 // Map the incoming event to the right input conn_name
-                match self.subscriptions.conn_name_for(msg.clone()) {
+                match self.incoming_connections.conn_name_for(msg.clone()) {
                     Ok(input_conn_name) => {
                         let (result_tx, mut result_rx) = mpsc::channel(100);
                         let (status_tx, mut status_rx) = mpsc::channel(100);
 
-                        let operator_context = MuetlContext {
-                            current_subscribers: self.outgoing_connections.get_connection_types(),
-                            results: result_tx,
-                            status: status_tx,
-                            event_name: Some(ev.name.clone()),
-                            event_headers: ev.headers.clone(),
-                        };
+                        let operator_context = self.create_context(
+                            result_tx,
+                            status_tx,
+                            Some(ev.name.clone()),
+                            ev.headers.clone(),
+                        );
 
                         let mut operator = self.operator.take().unwrap();
                         let m = ev.clone();
@@ -273,7 +278,7 @@ impl Actor for OperatorActor {
         actor_ref: kameo::prelude::ActorRef<Self>,
     ) -> Result<Self, Self::Error> {
         // Subscribe to each of the subscriptions we've been initialized with
-        match args.subscriptions.subscribe_to_all(actor_ref).await {
+        match args.incoming_connections.subscribe_to_all(actor_ref).await {
             Ok(()) => Ok(args),
             Err(e) => Err(e),
         }

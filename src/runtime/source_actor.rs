@@ -9,12 +9,13 @@ use tokio::{
 use tracing::Instrument;
 
 use crate::runtime::monitor_actor::Monitor;
+use crate::task_defs::MuetlSourceContext;
 use crate::{
     logging::global_registry,
     messages::{Status, StatusUpdate},
     runtime::connection::OutgoingConnections,
     system::util::new_id,
-    task_defs::{source::Source, MuetlContext},
+    task_defs::source::Source,
 };
 
 pub struct SourceActor {
@@ -23,7 +24,7 @@ pub struct SourceActor {
     task_name: String,
     source: Option<Box<dyn Source>>,
     monitor: ActorRef<Monitor>,
-    current_context: MuetlContext,
+    current_context: MuetlSourceContext,
     /// A mapping of output conn_names to internal sender IDs.
     outgoing_connections: OutgoingConnections,
 }
@@ -66,8 +67,8 @@ impl SourceActor {
             trace_id,
             task_name,
             source,
-            monitor: monitor,
-            current_context: MuetlContext {
+            monitor,
+            current_context: MuetlSourceContext {
                 current_subscribers: outgoing_connections.get_connection_types(),
                 results: results_tx,
                 status: status_tx,
@@ -90,7 +91,7 @@ impl Message<()> for SourceActor {
         let (status_tx, mut status_rx) = mpsc::channel(100);
 
         // Create a context for the source to own
-        let source_context = MuetlContext {
+        let source_context = MuetlSourceContext {
             current_subscribers: self.current_context.current_subscribers.clone(),
             results: result_tx,
             status: status_tx,
@@ -161,7 +162,7 @@ impl Message<()> for SourceActor {
                 let (result_tx, mut result_rx) = mpsc::channel(100);
                 let (status_tx, _status_rx) = mpsc::channel(100);
 
-                let shutdown_ctx = MuetlContext {
+                let shutdown_ctx = MuetlSourceContext {
                     current_subscribers: HashMap::new(),
                     results: result_tx,
                     status: status_tx,
@@ -243,7 +244,7 @@ impl Actor for SourceActor {
             Ok(_) => Ok(args),
             Err(SendError::MailboxFull(())) => {
                 tracing::error!(taskid = args.id, task_name = %args.task_name, "mailbox is full on_start");
-                Err(format!("failed to enqueue initial source iteration"))
+                Err("failed to enqueue initial source iteration".to_string())
             }
             Err(e) => {
                 tracing::error!(taskid = args.id, task_name = %args.task_name, "unknown error on startup");

@@ -30,8 +30,9 @@ pub use crate::task_defs::Output;
 pub use crate::task_defs::SinkInput;
 
 // Context types
-pub use crate::task_defs::MuetlContext;
+pub use crate::task_defs::MuetlOperatorContext;
 pub use crate::task_defs::MuetlSinkContext;
+pub use crate::task_defs::MuetlSourceContext;
 
 // Configuration types
 pub use crate::task_defs::ConfigField;

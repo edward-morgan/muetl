@@ -13,7 +13,7 @@ use muetl::{
     impl_config_template,
     messages::event::Event,
     registry::{SelfDescribing, TaskDefInfo, TaskInfo},
-    task_defs::{operator::Operator, ConfigTemplate, MuetlContext, TaskConfig, TaskDef},
+    task_defs::{operator::Operator, ConfigTemplate, MuetlOperatorContext, TaskConfig, TaskDef},
 };
 
 /// Batch events into groups by count or time window.
@@ -58,7 +58,7 @@ impl Batch {
         false
     }
 
-    async fn flush(&mut self, ctx: &MuetlContext) {
+    async fn flush(&mut self, ctx: &MuetlOperatorContext) {
         if self.buffer.is_empty() {
             return;
         }
@@ -112,7 +112,7 @@ impl SelfDescribing for Batch {
 impl Operator for Batch {
     async fn handle_event_for_conn(
         &mut self,
-        ctx: &MuetlContext,
+        ctx: &MuetlOperatorContext,
         conn_name: &String,
         ev: Arc<Event>,
     ) {
@@ -133,7 +133,7 @@ impl Operator for Batch {
         }
     }
 
-    async fn prepare_shutdown(&mut self, ctx: &MuetlContext) {
+    async fn prepare_shutdown(&mut self, ctx: &MuetlOperatorContext) {
         // Flush any remaining buffered events before shutdown
         if !self.buffer.is_empty() {
             tracing::info!(

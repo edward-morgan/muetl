@@ -9,7 +9,7 @@ use cron::Schedule;
 use muetl::{
     impl_config_template, impl_source_handler,
     messages::{event::Event, Status},
-    task_defs::{source::Source, MuetlContext, Output, TaskConfig, TaskDef},
+    task_defs::{source::Source, MuetlSourceContext, Output, TaskConfig, TaskDef},
 };
 
 /// CronSource emits empty trigger events according to a cron schedule.
@@ -48,7 +48,7 @@ impl Output<()> for CronSource {
 
 #[async_trait]
 impl Source for CronSource {
-    async fn run(&mut self, ctx: &MuetlContext) {
+    async fn run(&mut self, ctx: &MuetlSourceContext) {
         // Check if we've hit the count limit (0 means unlimited)
         if self.count > 0 && self.emitted >= self.count {
             ctx.status.send(Status::Finished).await.unwrap();

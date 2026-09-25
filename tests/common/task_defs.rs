@@ -10,10 +10,11 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use muetl::{
-    impl_operator_handler, impl_sink_handler,
+    impl_config_template, impl_operator_handler, impl_sink_handler,
     messages::event::Event,
     task_defs::{
-        source::Source, Input, MuetlContext, MuetlSinkContext, SinkInput, TaskConfig, TaskDef,
+        source::Source, Input, MuetlOperatorContext, MuetlSinkContext, MuetlSourceContext,
+        SinkInput, TaskConfig, TaskDef,
     },
 };
 
@@ -40,7 +41,7 @@ impl TaskDef for NumberSource {}
 
 #[async_trait]
 impl Source for NumberSource {
-    async fn run(&mut self, ctx: &MuetlContext) {
+    async fn run(&mut self, ctx: &MuetlSourceContext) {
         if self.current >= self.max {
             ctx.status
                 .send(muetl::messages::Status::Finished)
@@ -85,7 +86,7 @@ impl TaskDef for Adder {}
 
 impl Input<i64> for Adder {
     const conn_name: &'static str = "input";
-    async fn handle(&mut self, ctx: &MuetlContext, value: &i64) {
+    async fn handle(&mut self, ctx: &MuetlOperatorContext, value: &i64) {
         let result = value + self.addend;
         ctx.results
             .send(Event::new(
@@ -125,7 +126,7 @@ impl TaskDef for Multiplier {}
 
 impl Input<i64> for Multiplier {
     const conn_name: &'static str = "input";
-    async fn handle(&mut self, ctx: &MuetlContext, value: &i64) {
+    async fn handle(&mut self, ctx: &MuetlOperatorContext, value: &i64) {
         let result = value * self.factor;
         ctx.results
             .send(Event::new(
@@ -204,6 +205,50 @@ impl SinkInput<i64> for ResultCollector {
 }
 
 impl_sink_handler!(ResultCollector, "input" => i64);
+
+// ----------------------------------------------------------------------------
+// Passer - passes inputs through unchanged.
+// ----------------------------------------------------------------------------
+
+pub struct Passer;
+
+impl_operator_handler!(
+  Passer,
+  task_id = "passer",
+  inputs(
+    "incoming_data" => [i64]
+  ),
+  outputs(
+    "outgoing_data" => [i64]
+  )
+);
+
+impl_config_template!(Passer,);
+
+impl TaskDef for Passer {}
+
+impl Passer {
+    pub async fn new(
+        _config: TaskConfig,
+    ) -> Result<Box<dyn muetl::task_defs::operator::Operator>, String> {
+        Ok(Box::new(Passer {}))
+    }
+}
+
+impl Input<i64> for Passer {
+    const conn_name: &'static str = "incoming_data";
+    async fn handle(&mut self, ctx: &MuetlOperatorContext, input: &i64) {
+        ctx.results
+            .send(Event::new(
+                "passed through".to_string(),
+                "outgoing_data".to_string(),
+                HashMap::new(),
+                Arc::new(*input),
+            ))
+            .await
+            .unwrap();
+    }
+}
 
 // ----------------------------------------------------------------------------
 // Helper for extracting i64 from ConfigValue

@@ -112,7 +112,7 @@ impl Root {
         match &task_info.config_tpl {
             Some(tpl) => tpl
                 .validate(node.configuration.clone())
-                .map_err(|errors| RuntimeError::ConfigResolutionError(errors)),
+                .map_err(RuntimeError::ConfigResolutionError),
             None => Ok(TaskConfig::new(node.configuration.clone())),
         }
     }
@@ -139,9 +139,9 @@ impl Root {
                         node_id.clone(),
                         Some(source),
                         self.monitor.clone(),
-                        self.connections.outgoing_connections_from(&node_id),
+                        self.connections.outgoing_connections_from(node_id),
                     );
-                    let r = SourceActor::spawn_link(&actor_ref, r).await;
+                    let r = SourceActor::spawn_link(actor_ref, r).await;
                     Ok(r.id())
                 }
                 Err(e) => Err(e),
@@ -159,7 +159,7 @@ impl Root {
                         self.monitor.clone(),
                         self.connections.incoming_connections_to(node_id),
                     );
-                    let r = SinkActor::spawn_link(&actor_ref, r).await;
+                    let r = SinkActor::spawn_link(actor_ref, r).await;
                     Ok(r.id())
                 }
                 Err(e) => Err(e),
@@ -179,7 +179,7 @@ impl Root {
                         self.connections.incoming_connections_to(node_id),
                         self.connections.outgoing_connections_from(node_id),
                     );
-                    let r = OperatorActor::spawn_link(&actor_ref, r).await;
+                    let r = OperatorActor::spawn_link(actor_ref, r).await;
                     Ok(r.id())
                 }
                 Err(e) => Err(e),
@@ -375,8 +375,13 @@ impl Actor for Root {
     }
 }
 
+/// Tracks the mapping from an `Edge` in a `Flow` to the underlying runtime `Connection` where results will be sent.
+///
+/// The mapping between an `Edge` and a `Connection` is 1-1, as the `Connection` contains some of the same information
+/// as an `Edge` (namely the receiver's conn_name). However, multiple `Connection`s may utilize the same underlying
+/// `ChannelImpl`.
 struct EdgeConnections {
-    mapping: Vec<(Edge, Connection)>,
+    mapping: Vec<(Edge, Arc<Connection>)>,
 }
 
 impl From<Vec<Edge>> for EdgeConnections {
@@ -384,16 +389,45 @@ impl From<Vec<Edge>> for EdgeConnections {
         use crate::flow::NodeRef;
         use std::collections::HashMap;
 
-        // Group edges by their source (from NodeRef) so that fan-out edges share the same Connection/PubSub
-        let mut conn_by_source: HashMap<NodeRef, Connection> = HashMap::new();
         let mut mapping = vec![];
-
+        let mut by_node_ref: HashMap<NodeRef, Vec<Arc<Connection>>> = HashMap::new();
         for edge in edges {
-            let conn = conn_by_source
-                .entry(edge.from.clone())
-                .or_insert_with(|| edge.to_connection())
-                .clone();
-            mapping.push((edge, conn));
+            let et = edge
+                .edge_type
+                .clone()
+                .expect("flow was not property initialized - types have not been negotiated!");
+            // If there are existing Connections for this edge's outgoing NodeRef, look through them to see if the types match
+            // and we can reuse the ChannelImpl.
+            if let Some(existing_conns) = by_node_ref.get_mut(&edge.from) {
+                let new_conn = match existing_conns
+                    .iter()
+                    .find(|existing| *existing.chan_type == et)
+                {
+                    Some(existing) => Arc::new(Connection::with_channel(
+                        et.clone(),
+                        existing.connection_key,
+                        edge.from.conn_name.clone(),
+                        edge.to.conn_name.clone(),
+                        existing.chan_ref.clone(),
+                    )),
+                    None => Arc::new(Connection::new(
+                        et.clone(),
+                        edge.from.conn_name.clone(),
+                        edge.to.conn_name.clone(),
+                    )),
+                };
+
+                existing_conns.push(new_conn.clone());
+                mapping.push((edge, new_conn.clone()));
+            } else {
+                let new_conn = Arc::new(Connection::new(
+                    et.clone(),
+                    edge.from.conn_name.clone(),
+                    edge.to.conn_name.clone(),
+                ));
+                by_node_ref.insert(edge.from.clone(), vec![new_conn.clone()]);
+                mapping.push((edge, new_conn.clone()));
+            }
         }
         EdgeConnections { mapping }
     }
@@ -401,16 +435,14 @@ impl From<Vec<Edge>> for EdgeConnections {
 
 impl EdgeConnections {
     pub fn outgoing_connections_from(&self, edge_node_id: &String) -> OutgoingConnections {
-        let conns = self
+        // This will return every connection from the given edge_node_id; this includes Connections that
+        // have the same ConnectionKey (which will also use the same underlying channel). We rely on
+        // OutgoingConnections::from to correctly parse that distinction.
+        let conns: Vec<Arc<Connection>> = self
             .mapping
             .iter()
-            .flat_map(|(e, c)| {
-                if e.from.node_id == *edge_node_id {
-                    Some(c)
-                } else {
-                    None
-                }
-            })
+            .filter(|(edge, _conn)| edge.from.node_id == *edge_node_id)
+            .map(|(_edge, conn)| conn.clone())
             .collect();
         OutgoingConnections::from(&conns)
     }
@@ -420,7 +452,7 @@ impl EdgeConnections {
             .iter()
             .flat_map(|(e, c)| {
                 if e.to.node_id == *edge_node_id {
-                    Some(c)
+                    Some(c.clone())
                 } else {
                     None
                 }

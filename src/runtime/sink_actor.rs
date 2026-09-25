@@ -1,8 +1,8 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use kameo::{actor::ActorRef, prelude::Message, Actor};
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, Sender};
 use tracing::Instrument;
 
 use crate::logging::global_registry;
@@ -26,8 +26,7 @@ pub struct SinkActor {
     monitor: ActorRef<Monitor>,
     /// The mapping set by the system at runtime to tell this actor which
     /// input conn_name events with a given sender_id should go to.
-    subscriptions: IncomingConnections,
-    active_subscriptions: HashSet<u64>,
+    incoming_connections: IncomingConnections,
 }
 
 impl SinkActor {
@@ -47,10 +46,8 @@ impl SinkActor {
         task_name: String,
         sink: Option<Box<dyn Sink>>,
         monitor: ActorRef<Monitor>,
-        subscriptions: IncomingConnections,
+        incoming_connections: IncomingConnections,
     ) -> Self {
-        let incoming_sender_ids = subscriptions.incoming_sender_ids();
-
         // Register this task with the log registry
         global_registry().register_task(task_id);
 
@@ -60,15 +57,28 @@ impl SinkActor {
             task_name,
             sink,
             monitor,
-            subscriptions,
-            active_subscriptions: incoming_sender_ids,
+            incoming_connections,
         }
     }
 
     /// Determines whether or not this Sink should shut down, which relies on looking at each incoming connection
     /// and determining if any of them can potentially receive data.
     pub fn should_shut_down(&self) -> bool {
-        self.active_subscriptions.is_empty()
+        !self.incoming_connections.alive()
+    }
+
+    fn create_context(
+        &self,
+        status: Sender<Status>,
+        event_name: String,
+        event_headers: HashMap<String, String>,
+    ) -> MuetlSinkContext {
+        MuetlSinkContext {
+            status,
+            event_name,
+            event_headers,
+            current_subscriptions: self.incoming_connections.subscriptions(),
+        }
     }
 }
 
@@ -94,7 +104,7 @@ impl Message<Arc<InternalEvent>> for SinkActor {
         match &msg.event {
             Payload::Stopped => {
                 // Mark the current IncomingConnection as stopped
-                self.active_subscriptions.remove(&msg.sender_id);
+                self.incoming_connections.mark_inactive(msg.sender_id);
                 // If no incoming connections are active, then stop the Actor.
                 if self.should_shut_down() {
                     tracing::info!(task_id = self.id, task_name = %self.task_name, "No incoming connections are still active; Sink will shut down.");
@@ -103,11 +113,11 @@ impl Message<Arc<InternalEvent>> for SinkActor {
                     if let Some(mut sink) = self.sink.take() {
                         let (status_tx, _status_rx) = mpsc::channel(100);
 
-                        let shutdown_ctx = MuetlSinkContext {
-                            status: status_tx,
-                            event_name: "shutdown".to_string(),
-                            event_headers: Default::default(),
-                        };
+                        let shutdown_ctx = self.create_context(
+                            status_tx,
+                            "shutdown".to_string(),
+                            Default::default(),
+                        );
 
                         let span = tracing::info_span!(
                             "task_shutdown",
@@ -134,15 +144,11 @@ impl Message<Arc<InternalEvent>> for SinkActor {
             }
             Payload::Data(ev) => {
                 // Map the incoming event to the right input conn_name
-                match self.subscriptions.conn_name_for(msg.clone()) {
+                match self.incoming_connections.conn_name_for(msg.clone()) {
                     Ok(input_conn_name) => {
                         let (status_tx, mut status_rx) = mpsc::channel(100);
-                        let ctx = MuetlSinkContext {
-                            status: status_tx,
-                            event_name: ev.name.clone(),
-                            event_headers: ev.headers.clone(),
-                        };
-
+                        let ctx =
+                            self.create_context(status_tx, ev.name.clone(), ev.headers.clone());
                         let mut sink = self.sink.take().unwrap();
                         let m = ev.clone();
                         let conn_name = input_conn_name.clone();
@@ -168,7 +174,7 @@ impl Message<Arc<InternalEvent>> for SinkActor {
                                 res = status_rx.recv() => {
                                     if let Some(status) = res {
                                         tracing::debug!(task_id = self.id, status = ?status, "Sink received status");
-                                        self.monitor.tell(StatusUpdate{status: status, id: self.id}).await.unwrap();
+                                        self.monitor.tell(StatusUpdate{status, id: self.id}).await.unwrap();
                                     } else {
                                         break;
                                     }
@@ -209,7 +215,7 @@ impl Actor for SinkActor {
         actor_ref: kameo::prelude::ActorRef<Self>,
     ) -> Result<Self, Self::Error> {
         // Subscribe to each of the subscriptions we've been initialized with
-        match args.subscriptions.subscribe_to_all(actor_ref).await {
+        match args.incoming_connections.subscribe_to_all(actor_ref).await {
             Ok(()) => Ok(args),
             Err(e) => Err(e),
         }

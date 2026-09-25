@@ -3,12 +3,12 @@ use std::any::TypeId;
 use kameo::{actor::ActorId, error::SendError};
 use thiserror::Error;
 
-use crate::messages::RegisterRuntimeInfo;
+use crate::{messages::RegisterRuntimeInfo, runtime::connection::ConnectionKey};
 
 #[derive(Error, Debug)]
 pub enum RuntimeError {
-    #[error("cannot find incoming connection for sender with id {id}")]
-    UnknownIncomingConnection { id: u64 },
+    #[error("cannot find incoming connection with id {id}")]
+    UnknownIncomingConnection { id: ConnectionKey },
     #[error("cannot find connection named '{conn_name}'")]
     UnknownOutgoingConnection { conn_name: String },
     #[error("failed to publish event: {0}")]

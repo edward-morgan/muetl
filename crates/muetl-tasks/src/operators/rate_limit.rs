@@ -12,7 +12,7 @@ use muetl::{
     impl_config_template,
     messages::event::Event,
     registry::{SelfDescribing, TaskDefInfo, TaskInfo},
-    task_defs::{operator::Operator, ConfigTemplate, MuetlContext, TaskConfig, TaskDef},
+    task_defs::{operator::Operator, ConfigTemplate, MuetlOperatorContext, TaskConfig, TaskDef},
 };
 use tokio::time::sleep;
 
@@ -70,7 +70,7 @@ impl SelfDescribing for RateLimit {
 impl Operator for RateLimit {
     async fn handle_event_for_conn(
         &mut self,
-        ctx: &MuetlContext,
+        ctx: &MuetlOperatorContext,
         conn_name: &String,
         ev: Arc<Event>,
     ) {
