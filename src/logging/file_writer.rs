@@ -41,7 +41,7 @@ pub struct FileLogWriter {
 
 struct TaskFileHandle {
     writer: BufWriter<File>,
-    _abort_handle: tokio::task::AbortHandle,
+    task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl FileLogWriter {
@@ -101,9 +101,7 @@ impl FileLogWriter {
 
         // Spawn task to receive logs and write to file
         let handles_clone = Arc::clone(&self.handles);
-        let abort_handle =
-            tokio::spawn(Self::log_writer_task(task_id, rx, file_path, handles_clone))
-                .abort_handle();
+        let task = tokio::spawn(Self::log_writer_task(task_id, rx, file_path, handles_clone));
 
         // Store handle
         {
@@ -112,12 +110,28 @@ impl FileLogWriter {
                 task_id,
                 TaskFileHandle {
                     writer,
-                    _abort_handle: abort_handle,
+                    task: Some(task),
                 },
             );
         }
 
         Ok(())
+    }
+
+    /// Close a failed task's log channel and persist queued entries before returning.
+    /// Call only after the task has stopped producing logs.
+    pub async fn finish_task(&self, task_id: u64) {
+        self.registry.unregister_task(task_id);
+        let task = {
+            let mut handles = self.handles.write().unwrap();
+            handles
+                .get_mut(&task_id)
+                .and_then(|handle| handle.task.take())
+        };
+        if let Some(task) = task {
+            let _ = task.await;
+        }
+        self.unsubscribe_task(task_id);
     }
 
     /// Unsubscribe from a task's logs and close the file.
