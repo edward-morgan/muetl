@@ -4,7 +4,7 @@ use kameo::prelude::*;
 
 use crate::{
     flow::{Edge, Flow, Node},
-    logging::FileLogWriter,
+    logging::{global_registry, FileLogWriter},
     messages::RegisterRuntimeInfo,
     registry::TaskDefInfo,
     runtime::{error::RuntimeError, monitor_actor::Monitor},
@@ -118,6 +118,11 @@ impl Root {
     }
 
     /// Given a node to spawn, build it, and return (actor_id, task_id) if successful.
+    #[tracing::instrument(
+        name = "task",
+        skip_all,
+        fields(trace_id = self.id, task_id = task_id, task_name = %node_id)
+    )]
     async fn spawn_actor_for_node(
         &self,
         actor_ref: &ActorRef<Root>,
@@ -126,6 +131,13 @@ impl Root {
         task_id: u64,
     ) -> Result<ActorId, RuntimeError> {
         let config = self.resolve_config(node)?;
+
+        global_registry().register_task(task_id);
+        if let Some(ref writer) = self.file_log_writer {
+            if let Err(e) = writer.subscribe_task(task_id, node_id) {
+                tracing::warn!(error = %e, "Failed to subscribe task to file logging");
+            }
+        }
 
         let build_result = match &node.info.as_ref().unwrap().info {
             TaskDefInfo::SourceDef {
@@ -187,25 +199,20 @@ impl Root {
         };
 
         match build_result {
-            Ok(actor_id) => {
-                // Subscribe this task to file logging if enabled
+            Ok(actor_id) => Ok(actor_id),
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to create task");
+                // Startup may exit immediately; persist the queued constructor logs first.
                 if let Some(ref writer) = self.file_log_writer {
-                    if let Err(e) = writer.subscribe_task(task_id, node_id) {
-                        tracing::warn!(
-                            node_id = %node_id,
-                            task_id = task_id,
-                            error = %e,
-                            "Failed to subscribe task to file logging"
-                        );
-                    }
+                    writer.finish_task(task_id).await;
                 }
-                Ok(actor_id)
+                global_registry().unregister_task(task_id);
+                Err(RuntimeError::FailedToBuildTaskError {
+                    node_id: node_id.clone(),
+                    flow_id: self.flow.id.clone(),
+                    msg: e,
+                })
             }
-            Err(e) => Err(RuntimeError::FailedToBuildTaskError {
-                node_id: node_id.clone(),
-                flow_id: self.flow.id.clone(),
-                msg: e,
-            }),
         }
     }
 }
