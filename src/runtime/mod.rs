@@ -6,6 +6,7 @@ pub mod operator_actor;
 pub mod root;
 pub mod sink_actor;
 pub mod source_actor;
+pub mod types;
 
 use std::{any::TypeId, collections::HashMap, sync::Arc};
 
@@ -63,7 +64,9 @@ impl NegotiatedType {
                 }
                 let mut present = HashMap::new();
                 for ev in events {
-                    if let std::collections::hash_map::Entry::Vacant(e) = present.entry((*ev.get_data()).type_id()) {
+                    if let std::collections::hash_map::Entry::Vacant(e) =
+                        present.entry((*ev.get_data()).type_id())
+                    {
                         e.insert(());
                     } else {
                         return Err(RuntimeError::DuplicateTypeError {
